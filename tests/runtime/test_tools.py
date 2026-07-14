@@ -565,6 +565,17 @@ class TestAgentToolsSendEvent:
         assert sent_content.startswith("HEAD")
         assert sent_content.endswith("[truncated]")
 
+    async def test_send_event_substitutes_placeholder_for_blank_content(
+        self, mock_rest_client
+    ):
+        """send_event() should never send a blank string — the platform 422s on it."""
+        tools = AgentTools("room-123", mock_rest_client)
+
+        await tools.send_event("", "tool_result")
+
+        call_args = mock_rest_client.agent_api_events.create_agent_chat_event.call_args
+        assert call_args.kwargs["event"].content == "(no content)"
+
 
 class TestMatchesIdentifier:
     """Tests for the _matches_identifier helper."""

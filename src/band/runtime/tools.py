@@ -42,12 +42,15 @@ logger = logging.getLogger(__name__)
 
 # The Agent Events API enforces a hard cap on event content (see
 # thenvoi-platform's events_controller.ex `@content_max_length`) and rejects
-# anything larger with a 422 before it ever reaches the room. Event content
-# can be arbitrarily large in practice — e.g. an ACP tool_result mirroring a
-# large file, or a raw exception dump — so truncate defensively rather than
-# letting the send fail.
+# anything larger with a 422 before it ever reaches the room; it also rejects
+# a blank string outright ("content can't be blank"). Event content can be
+# arbitrarily large or entirely absent in practice — e.g. an ACP tool_result
+# mirroring a large file, or a tool call whose result has no text
+# representation (a terminal- or diff-only ACP tool_call_update) — so guard
+# both ends defensively rather than letting the send fail.
 _EVENT_CONTENT_MAX_LENGTH = 16384
 _EVENT_TRUNCATION_MARKER = "... [truncated]"
+_EVENT_EMPTY_CONTENT_PLACEHOLDER = "(no content)"
 
 
 def _truncate_event_content(content: str) -> str:
@@ -1518,6 +1521,14 @@ class AgentTools(AgentToolsProtocol):
         from band.client.rest import ChatEventRequest
 
         logger.debug("Sending %s event to room %s", message_type, self.room_id)
+
+        if not content:
+            logger.warning(
+                "Substituting placeholder for blank %s event content in room %s",
+                message_type,
+                self.room_id,
+            )
+            content = _EVENT_EMPTY_CONTENT_PLACEHOLDER
 
         original_length = len(content)
         content = _truncate_event_content(content)

@@ -155,6 +155,52 @@ class TestACPCollectingClientCoalescing:
             True,
         ]
 
+    @pytest.mark.asyncio
+    async def test_tool_result_falls_back_to_content_blocks_when_raw_output_unset(
+        self,
+    ) -> None:
+        """Some agents (Copilot) report output only via ``content``, not ``rawOutput``."""
+        client = ACPCollectingClient()
+        text_block = MagicMock(text="production, development, test")
+        content_item = MagicMock(type="content", content=text_block)
+        diff_item = MagicMock(type="diff", path="/tmp/x", new_text="ignored")
+        tool_result = MagicMock(
+            session_update="tool_call_update",
+            tool_call_id="tc-env",
+            raw_output=None,
+            content=[content_item, diff_item],
+            status="completed",
+        )
+
+        await client.session_update("s1", tool_result)
+
+        chunks = client.get_collected_chunks("s1")
+        assert chunks[0].chunk_type == "tool_result"
+        # Only the "content"-typed block contributes text; the diff entry,
+        # despite being a MagicMock that would auto-vivify a `.content`
+        # attribute, is excluded by its explicit type tag.
+        assert chunks[0].content == "production, development, test"
+
+    @pytest.mark.asyncio
+    async def test_tool_result_is_blank_when_neither_raw_output_nor_content_present(
+        self,
+    ) -> None:
+        """A terminal- or diff-only tool_call_update has no text to surface — this
+        is the case the send_event blank-content guard exists to catch."""
+        client = ACPCollectingClient()
+        tool_result = MagicMock(
+            session_update="tool_call_update",
+            tool_call_id="tc-terminal",
+            raw_output=None,
+            content=None,
+            status="completed",
+        )
+
+        await client.session_update("s1", tool_result)
+
+        chunks = client.get_collected_chunks("s1")
+        assert chunks[0].content == ""
+
 
 class TestACPRuntime:
     """Tests for ACP runtime subprocess orchestration."""

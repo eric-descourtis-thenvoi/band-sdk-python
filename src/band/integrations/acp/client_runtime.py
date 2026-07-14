@@ -240,9 +240,17 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
             if status in ("completed", "failed"):
                 self._self_reporting_call_ids[session_id].discard(tool_call_id)
         raw_output = getattr(update, "raw_output", "")
+        content = str(raw_output) if raw_output else ""
+        if not content:
+            # Some agents (e.g. Copilot's ACP agent) report tool output only via
+            # the ``content`` block list, leaving ``rawOutput`` unset — fall back
+            # to it before giving up, so real output isn't dropped on the floor.
+            content = self._extract_text_from_tool_content(
+                getattr(update, "content", None)
+            )
         return CollectedChunk(
             chunk_type="tool_result",
-            content=str(raw_output) if raw_output else "",
+            content=content,
             metadata=metadata,
         )
 
@@ -335,14 +343,39 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
             self._session_chunks.setdefault(session_id, []).extend(chunks)
 
     @staticmethod
-    def _extract_text_from_content(update: object) -> str:
-        content = getattr(update, "content", None)
-        if content is None:
-            return ""
-        text = getattr(content, "text", None)
-        if text is None and isinstance(content, dict):
-            text = content.get("text", "")
+    def _block_text(block: object) -> str:
+        """The ``text`` field of a single ACP content block, else ``""``.
+
+        Accepts either the parsed pydantic model (``.text``) or a raw dict.
+        """
+        text = getattr(block, "text", None)
+        if text is None and isinstance(block, dict):
+            text = block.get("text")
         return str(text) if text else ""
+
+    @staticmethod
+    def _extract_text_from_content(update: object) -> str:
+        return ACPCollectingClient._block_text(getattr(update, "content", None))
+
+    @staticmethod
+    def _extract_text_from_tool_content(content: object) -> str:
+        """Join the inline text blocks of a ``tool_call_update``'s ``content`` list.
+
+        Unlike the single-block ``content`` on message/thought updates, a
+        ``ToolCallUpdate.content`` is a tagged-union list (``ContentToolCallContent``
+        | ``FileEditToolCallContent`` | ``TerminalToolCallContent``, discriminated
+        by ``type``); only ``"content"`` entries wrap a text block, so entries of
+        another ``type`` (file-edit diffs, terminal references) are skipped by
+        their explicit tag rather than by happening to lack a ``.content`` field.
+        """
+        if not isinstance(content, list):
+            return ""
+        texts = [
+            ACPCollectingClient._block_text(getattr(item, "content", None))
+            for item in content
+            if getattr(item, "type", None) == "content"
+        ]
+        return "\n".join(text for text in texts if text)
 
 
 class ACPRuntime:
