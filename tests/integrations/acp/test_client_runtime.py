@@ -191,6 +191,47 @@ class TestACPCollectingClientCoalescing:
         assert chunks[0].content == json.dumps(json.loads(clean), indent=2)
 
     @pytest.mark.asyncio
+    async def test_deduped_tool_result_is_not_regressed_by_a_later_duplicated_frame(
+        self,
+    ) -> None:
+        """A frame already cleaned by _unwrap_structured_result must not be
+        overwritten by a later frame whose own content still carries the
+        duplicated echo (e.g. its rawOutput didn't match the recognized shape).
+        "Latest readable wins" is for genuine progress replacement (see
+        test_latest_readable_tool_result_replaces_longer_progress), not for
+        regressing an already-verified-clean value."""
+        client = ACPCollectingClient()
+        clean = '{"id": "msg-1"}'
+        duplicated_text = clean + "\n\n" + json.dumps({"result": clean})
+
+        def frame(text: str, raw_output: object, status: str) -> MagicMock:
+            text_block = MagicMock(text=text)
+            content_item = MagicMock(type="content", content=text_block)
+            return MagicMock(
+                session_update="tool_call_update",
+                tool_call_id="tc-msg",
+                raw_output=raw_output,
+                content=[content_item],
+                status=status,
+            )
+
+        # Frame 1 is deduped: its rawOutput matches the recognized wrap shape.
+        await client.session_update(
+            "s1",
+            frame(
+                duplicated_text, {"structuredContent": {"result": clean}}, "in_progress"
+            ),
+        )
+        # Frame 2 is NOT deduped: same duplicated text, but no recognizable
+        # structuredContent to clean it (e.g. a differently-shaped rawOutput).
+        await client.session_update(
+            "s1", frame(duplicated_text, {"other": "shape"}, "completed")
+        )
+
+        chunks = client.get_collected_chunks("s1")
+        assert chunks[0].content == json.dumps(json.loads(clean), indent=2)
+
+    @pytest.mark.asyncio
     async def test_tool_result_keeps_content_when_structured_content_is_richer(
         self,
     ) -> None:

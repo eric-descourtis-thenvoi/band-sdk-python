@@ -279,6 +279,7 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
         # overwrites clean text with a later raw-only frame.
         content = self._extract_text_from_tool_content(getattr(update, "content", None))
         from_raw = not content
+        deduped = False
         if from_raw:
             raw_output = getattr(update, "raw_output", "")
             content = str(raw_output) if raw_output else ""
@@ -291,11 +292,13 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
             unwrapped = _unwrap_structured_result(getattr(update, "raw_output", None))
             if unwrapped is not None:
                 content = unwrapped
+                deduped = True
         return CollectedChunk(
             chunk_type=ChunkType.TOOL_RESULT,
             content=content,
             metadata=metadata,
             from_raw=from_raw,
+            deduped=deduped,
         )
 
     # Chunk kinds that arrive as a stream of deltas for one logical message, so a
@@ -373,23 +376,38 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
         """Fold a later frame into a call's canonical result.
 
         The last *reported* status wins — ACP status is optional, so a frame that
-        omits it (status is None) must not regress a recorded "completed". ACP
-        ``content`` replaces the preceding content collection, so the latest
-        readable frame wins even when it is shorter (e.g. a long-running command's
-        streamed "still running..." progress text superseded by a short "OK"). A
-        raw-only or empty frame, which carries no such replacement semantics, falls
-        back to ranking by completeness (see _result_key).
+        omits it (status is None) must not regress a recorded "completed". A
+        deduped frame (see ``CollectedChunk.deduped``) is verified-clean, so it
+        always outranks one that isn't -- a later frame whose own content still
+        carries a duplicated echo (its ``rawOutput`` didn't match the recognized
+        shape) must not regress an already-cleaned value just because it arrived
+        after it. Between two frames with the same deduped status, ACP ``content``
+        replaces the preceding content collection, so the latest readable frame
+        wins even when it is shorter (e.g. a long-running command's streamed
+        "still running..." progress text superseded by a short "OK"). A raw-only
+        or empty frame, which carries no such replacement semantics, falls back to
+        ranking by completeness (see _result_key).
         """
         incoming_status = chunk.metadata.get("status")
         if incoming_status is not None:
             canonical.metadata["status"] = incoming_status
-        if chunk.content and not chunk.from_raw:
-            best = chunk
-        elif canonical.content and not canonical.from_raw:
-            best = canonical
-        else:
-            best = max(canonical, chunk, key=self._result_key)
-        canonical.content, canonical.from_raw = best.content, best.from_raw
+        match (canonical.deduped, chunk.deduped):
+            case (True, False):
+                best = canonical
+            case (False, True):
+                best = chunk
+            case _:
+                if chunk.content and not chunk.from_raw:
+                    best = chunk
+                elif canonical.content and not canonical.from_raw:
+                    best = canonical
+                else:
+                    best = max(canonical, chunk, key=self._result_key)
+        canonical.content, canonical.from_raw, canonical.deduped = (
+            best.content,
+            best.from_raw,
+            best.deduped,
+        )
 
     async def _finalize(self, session_id: str, chunk: CollectedChunk) -> None:
         """Buffer a finalized chunk and post it to the session's live sink, if any."""

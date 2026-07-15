@@ -54,12 +54,19 @@ class CollectedChunk:
             ``rawOutput`` fallback rather than readable content-block text. Lets
             the collapse of repeated tool_call_updates prefer the readable frame
             (see ``ACPCollectingClient._fold_result``); ignored otherwise.
+        deduped: For tool_result chunks, True when ``content`` was recovered from
+            a verified self-duplicating ``rawOutput.structuredContent`` echo (see
+            ``_unwrap_structured_result``) rather than taken as-is from content
+            blocks. A deduped chunk is known-clean, so folding a later frame must
+            not regress it back to a duplicated value just because it arrived
+            later (see ``ACPCollectingClient._fold_result``); ignored otherwise.
     """
 
     chunk_type: str
     content: str
     metadata: dict[str, Any] = field(default_factory=dict)
     from_raw: bool = False
+    deduped: bool = False
 
 
 @dataclass
