@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -157,6 +158,64 @@ class TestACPCollectingClientCoalescing:
         assert chunks[0].content == "production, development, test"
 
     @pytest.mark.asyncio
+    async def test_tool_result_prefers_structured_content_over_duplicated_text(
+        self,
+    ) -> None:
+        """Copilot fronting a FastMCP primitive-typed tool forwards both the
+        readable text *and* its structuredContent companion (MCP's own
+        ``{"result": ...}`` primitive-output wrap) concatenated into one text
+        block -- duplicating a JSON-serialized string across them. The clean,
+        least-processed copy sits in ``rawOutput.structuredContent.result``;
+        prefer it over the duplicated content block."""
+        client = ACPCollectingClient()
+        clean = '{\n  "id": "msg-1",\n  "recipients": [{"handle": "pat"}],\n  "success": true\n}'
+        duplicated_text = clean + "\n\n" + json.dumps({"result": clean})
+        text_block = MagicMock(text=duplicated_text)
+        content_item = MagicMock(type="content", content=text_block)
+        tool_result = MagicMock(
+            session_update="tool_call_update",
+            tool_call_id="tc-msg",
+            raw_output={
+                "content": duplicated_text,
+                "detailedContent": duplicated_text,
+                "contents": [{"type": "text", "text": clean}],
+                "structuredContent": {"result": clean},
+            },
+            content=[content_item],
+            status="completed",
+        )
+
+        await client.session_update("s1", tool_result)
+
+        chunks = client.get_collected_chunks("s1")
+        assert chunks[0].content == json.dumps(json.loads(clean), indent=2)
+
+    @pytest.mark.asyncio
+    async def test_tool_result_keeps_content_when_structured_content_is_richer(
+        self,
+    ) -> None:
+        """A ``structuredContent`` that isn't the single-key primitive-output
+        wrap (``{"result": <json string>}``) may be a genuinely distinct,
+        richer payload -- leave the content blocks alone."""
+        client = ACPCollectingClient()
+        text_block = MagicMock(text="Found 3 matching rooms.")
+        content_item = MagicMock(type="content", content=text_block)
+        tool_result = MagicMock(
+            session_update="tool_call_update",
+            tool_call_id="tc-search",
+            raw_output={
+                "structuredContent": {"rooms": ["room-1", "room-2", "room-3"]},
+            },
+            content=[content_item],
+            status="completed",
+        )
+
+        await client.session_update("s1", tool_result)
+
+        chunks = client.get_collected_chunks("s1")
+        assert chunks[0].content == "Found 3 matching rooms."
+
+    @pytest.mark.asyncio
     async def test_tool_result_is_blank_when_neither_raw_output_nor_content_present(
         self,
     ) -> None:
@@ -175,6 +234,31 @@ class TestACPCollectingClientCoalescing:
 
         chunks = client.get_collected_chunks("s1")
         assert chunks[0].content == ""
+
+    @pytest.mark.asyncio
+    async def test_latest_readable_tool_result_replaces_longer_progress(self) -> None:
+        """ACP content is replacement content, not an accumulating progress value."""
+        client = ACPCollectingClient()
+
+        def result(content: str, status: str) -> MagicMock:
+            text_block = MagicMock(text=content)
+            content_item = MagicMock(type="content", content=text_block)
+            return MagicMock(
+                session_update="tool_call_update",
+                tool_call_id="tc-1",
+                raw_output=None,
+                content=[content_item],
+                status=status,
+            )
+
+        await client.session_update(
+            "s1", result("Command still running...", "in_progress")
+        )
+        await client.session_update("s1", result("OK", "completed"))
+
+        chunks = client.get_collected_chunks("s1")
+        assert len(chunks) == 1
+        assert chunks[0].content == "OK"
 
     @pytest.mark.asyncio
     async def test_tool_result_posts_once_and_is_not_re_emitted_on_revision(

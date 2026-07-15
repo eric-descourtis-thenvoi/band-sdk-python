@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -77,6 +78,37 @@ def allow_permission(option_id: str) -> dict[str, object]:
 def cancel_permission() -> dict[str, object]:
     """An ACP ``RequestPermissionResponse`` cancelling the request."""
     return {"outcome": {"outcome": "cancelled"}}
+
+
+def _unwrap_structured_result(raw_output: object) -> str | None:
+    """Recover a tool result's value from a FastMCP primitive-output wrap.
+
+    FastMCP wraps a primitive (``str``/``int``/...) tool return as
+    ``structuredContent = {"result": <value>}`` alongside a plain-text
+    ``content`` block holding that same value. Some ACP bridges (observed:
+    Copilot) forward *both* into one text block, which visibly duplicates the
+    value when it was already a JSON-serialized string. ``structuredContent``
+    is a real MCP field carrying the least-processed copy, so prefer it,
+    re-serialized once, whenever ``raw_output`` carries it in exactly this
+    single-key ``{"result": <json string>}`` shape.
+
+    Returns ``None`` (leave ``content`` untouched) for anything else -- a
+    ``structuredContent`` in a different shape may be a genuinely distinct,
+    richer payload this must not clobber.
+    """
+    if not isinstance(raw_output, dict):
+        return None
+    structured = raw_output.get("structuredContent")
+    if not isinstance(structured, dict) or set(structured) != {"result"}:
+        return None
+    result = structured["result"]
+    if not isinstance(result, str):
+        return None
+    try:
+        parsed = json.loads(result)
+    except json.JSONDecodeError:
+        return None
+    return json.dumps(parsed, indent=2)
 
 
 def tcp_spawn_process(
@@ -250,6 +282,15 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
         if from_raw:
             raw_output = getattr(update, "raw_output", "")
             content = str(raw_output) if raw_output else ""
+        else:
+            # ``rawOutput`` may still carry the least-processed copy of the same
+            # value under MCP's own ``structuredContent`` field (see
+            # _unwrap_structured_result); prefer it over the content blocks when
+            # recognizable, since a bridge that forwards both can duplicate a
+            # JSON-serialized string across them.
+            unwrapped = _unwrap_structured_result(getattr(update, "raw_output", None))
+            if unwrapped is not None:
+                content = unwrapped
         return CollectedChunk(
             chunk_type=ChunkType.TOOL_RESULT,
             content=content,
@@ -332,13 +373,22 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
         """Fold a later frame into a call's canonical result.
 
         The last *reported* status wins — ACP status is optional, so a frame that
-        omits it (status is None) must not regress a recorded "completed"; the more
-        readable/complete content survives (see _result_key).
+        omits it (status is None) must not regress a recorded "completed". ACP
+        ``content`` replaces the preceding content collection, so the latest
+        readable frame wins even when it is shorter (e.g. a long-running command's
+        streamed "still running..." progress text superseded by a short "OK"). A
+        raw-only or empty frame, which carries no such replacement semantics, falls
+        back to ranking by completeness (see _result_key).
         """
         incoming_status = chunk.metadata.get("status")
         if incoming_status is not None:
             canonical.metadata["status"] = incoming_status
-        best = max(canonical, chunk, key=self._result_key)
+        if chunk.content and not chunk.from_raw:
+            best = chunk
+        elif canonical.content and not canonical.from_raw:
+            best = canonical
+        else:
+            best = max(canonical, chunk, key=self._result_key)
         canonical.content, canonical.from_raw = best.content, best.from_raw
 
     async def _finalize(self, session_id: str, chunk: CollectedChunk) -> None:
@@ -366,10 +416,9 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
 
     @staticmethod
     def _result_key(chunk: CollectedChunk) -> tuple[bool, bool, int]:
-        """Total order over a call's result frames, highest wins: non-empty beats
-        empty, readable content-block text beats a ``rawOutput`` dump, then the
-        longer (more complete) frame. Being a total order, ``max`` picks the best
-        frame no matter what order the frames arrived in.
+        """Rank the raw-only/empty frames ``_fold_result`` falls back to (neither
+        side is a readable-content replacement, so completeness decides): non-empty
+        beats empty, then the longer (more complete) frame.
         """
         has_text = bool(chunk.content)
         return has_text, has_text and not chunk.from_raw, len(chunk.content)
