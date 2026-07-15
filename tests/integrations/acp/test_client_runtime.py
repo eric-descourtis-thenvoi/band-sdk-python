@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -155,6 +156,56 @@ class TestACPCollectingClientCoalescing:
         # despite being a MagicMock that would auto-vivify a `.content`
         # attribute, is excluded by its explicit type tag.
         assert chunks[0].content == "production, development, test"
+
+    @pytest.mark.asyncio
+    async def test_tool_result_drops_self_wrapped_json_echo(self) -> None:
+        """Copilot fronting a FastMCP primitive-typed tool reports its structured-
+        output companion field appended to, not replacing, the readable text: the
+        same JSON, JSON-string-escaped and wrapped as ``{"result": ...}``. Only
+        the leading, readable copy should reach the room."""
+        client = ACPCollectingClient()
+        leading = (
+            '{\n  "id": "msg-1",\n  "recipients": [{"handle": "pat"}],\n  '
+            '"success": true\n}'
+        )
+        duplicated = leading + "\n\n" + json.dumps({"result": leading})
+        text_block = MagicMock(text=duplicated)
+        content_item = MagicMock(type="content", content=text_block)
+        tool_result = MagicMock(
+            session_update="tool_call_update",
+            tool_call_id="tc-msg",
+            raw_output=None,
+            content=[content_item],
+            status="completed",
+        )
+
+        await client.session_update("s1", tool_result)
+
+        chunks = client.get_collected_chunks("s1")
+        assert chunks[0].content == leading
+
+    @pytest.mark.asyncio
+    async def test_tool_result_keeps_genuinely_distinct_trailing_json(self) -> None:
+        """Trailing JSON that isn't a ``{"result": <leading text>}`` echo of the
+        leading value is not an artifact of the primitive-output-wrapping bridge
+        behavior this guards against, so it must be left alone."""
+        client = ACPCollectingClient()
+        leading = '{"id": "msg-1"}'
+        distinct = leading + "\n\n" + json.dumps({"other": "unrelated data"})
+        text_block = MagicMock(text=distinct)
+        content_item = MagicMock(type="content", content=text_block)
+        tool_result = MagicMock(
+            session_update="tool_call_update",
+            tool_call_id="tc-msg",
+            raw_output=None,
+            content=[content_item],
+            status="completed",
+        )
+
+        await client.session_update("s1", tool_result)
+
+        chunks = client.get_collected_chunks("s1")
+        assert chunks[0].content == distinct
 
     @pytest.mark.asyncio
     async def test_tool_result_is_blank_when_neither_raw_output_nor_content_present(

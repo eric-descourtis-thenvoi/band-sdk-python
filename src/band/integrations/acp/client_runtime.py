@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -77,6 +78,36 @@ def allow_permission(option_id: str) -> dict[str, object]:
 def cancel_permission() -> dict[str, object]:
     """An ACP ``RequestPermissionResponse`` cancelling the request."""
     return {"outcome": {"outcome": "cancelled"}}
+
+
+def _drop_self_wrapped_json_echo(text: str) -> str:
+    """Drop a trailing ``{"result": <text>}`` that just re-encodes ``text`` itself.
+
+    Some MCP tool bridges (observed from Copilot fronting a FastMCP tool with a
+    primitive-typed return) report a tool result as its readable JSON rendering
+    followed by that *same* JSON, JSON-string-escaped and wrapped under a
+    ``"result"`` key — the bridge's structured-output companion field appended
+    to the text instead of replacing it. ``text`` decodes as one JSON value plus
+    trailing data in exactly that case, so this only strips when the trailing
+    value is verifiably a ``{"result": ...}`` echo of the leading value's own
+    source text — never a guess, and a no-op for ordinary (non-JSON, or single
+    JSON value, or genuinely distinct trailing data) tool output.
+    """
+    try:
+        _, end_index = json.JSONDecoder().raw_decode(text)
+    except json.JSONDecodeError:
+        return text
+    leading_text = text[:end_index]
+    trailing_text = text[end_index:].strip()
+    if not trailing_text:
+        return text
+    try:
+        trailing_value = json.loads(trailing_text)
+    except json.JSONDecodeError:
+        return text
+    if isinstance(trailing_value, dict) and trailing_value == {"result": leading_text}:
+        return leading_text
+    return text
 
 
 def tcp_spawn_process(
@@ -250,6 +281,8 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
         if from_raw:
             raw_output = getattr(update, "raw_output", "")
             content = str(raw_output) if raw_output else ""
+        else:
+            content = _drop_self_wrapped_json_echo(content)
         return CollectedChunk(
             chunk_type=ChunkType.TOOL_RESULT,
             content=content,
