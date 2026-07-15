@@ -334,6 +334,14 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
             ToolStatus.COMPLETED,
             ToolStatus.FAILED,
         )
+        # Finalize exactly once, at the first terminal frame — the earliest point a
+        # live, causally-ordered post is correct (waiting for the true last frame
+        # would defer every tool_result to turn-end, out of order). A later frame
+        # still folds into ``canonical`` (so get_collected_chunks reflects it), but
+        # the room event was already posted: the events API is append-only, so we
+        # can neither edit it nor re-post without duplicating the narration. A
+        # post-terminal content revision therefore stays in the buffer only — an
+        # accepted trade-off of live emission, not a bug to "fix" by re-emitting.
         if terminal and call_id not in emitted:
             emitted.add(call_id)
             await self._finalize(session_id, canonical)

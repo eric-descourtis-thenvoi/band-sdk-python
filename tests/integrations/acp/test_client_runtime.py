@@ -20,6 +20,7 @@ from band.integrations.acp.client_runtime import (
     select_allow_option_id,
     tcp_spawn_process,
 )
+from band.integrations.acp.types import CollectedChunk
 
 
 class TestSelectAllowOptionId:
@@ -202,6 +203,51 @@ class TestACPCollectingClientCoalescing:
 
         chunks = client.get_collected_chunks("s1")
         assert chunks[0].content == ""
+
+    @pytest.mark.asyncio
+    async def test_tool_result_posts_once_and_is_not_re_emitted_on_revision(
+        self,
+    ) -> None:
+        """A post-terminal content revision folds into the buffer but never re-posts.
+
+        The room event is posted once, at the first terminal frame (live, causal
+        order); the events API is append-only, so a later frame that revises the
+        content can neither edit that event nor be re-posted without duplicating the
+        narration. This pins that trade-off — and guards against a well-meaning
+        "re-emit on change" fix that would double-post the tool_result.
+        """
+        client = ACPCollectingClient()
+        # Snapshot what the sink RECEIVES at call time (a string), mirroring
+        # send_event(content=chunk.content, ...). Holding the chunk itself would
+        # instead show the value a later fold mutates in — exactly what must not
+        # reach the already-posted room event.
+        posted: list[tuple[str, str]] = []
+
+        async def record(chunk: CollectedChunk) -> None:
+            posted.append((chunk.chunk_type, chunk.content))
+
+        client.set_sink("s1", record)
+
+        def result(raw_output: str) -> MagicMock:
+            return MagicMock(
+                session_update="tool_call_update",
+                tool_call_id="tc-1",
+                raw_output=raw_output,
+                content=None,
+                status="completed",
+            )
+
+        await client.session_update("s1", result("partial result"))
+        # A later terminal frame for the same call carrying fuller content.
+        await client.session_update("s1", result("partial result plus more"))
+        await client.flush("s1")  # turn end must not re-emit the already-posted call
+
+        # Posted to the room exactly once, with the first-terminal content.
+        assert posted == [("tool_result", "partial result")]
+        # The revision still folds into the buffer (history/tests see the newest).
+        assert (
+            client.get_collected_chunks("s1")[-1].content == "partial result plus more"
+        )
 
 
 class TestACPRuntime:
