@@ -264,7 +264,11 @@ BAND_AGENT_ID=my-agent BAND_API_KEY=key band-acp
 
 ### Live, causally-ordered emission (Client Adapter)
 
-A turn's events must land in the room in the order they happened, because two things post **live, mid-turn**: a Band messaging tool's own room post (a remote/injected band-mcp calling REST as it runs) and the permission pair. So `ACPCollectingClient` doesn't buffer-then-flush — it **streams** finalized chunks to a per-session live sink (`set_sink`) as `session_update`s arrive: consecutive text/thought deltas coalesce into one run (finalized at the next boundary or turn-end `flush`), and a call's `tool_call_update` frames fold by `tool_call_id` into one result, finalized once the call reports a terminal status (`completed`/`failed`). The buffer (`_session_chunks`) still accumulates the finalized chunks for `get_collected_chunks` (history/persistence), keyed per session so concurrent rooms don't need a global lock.
+A turn's events must land in the room in the order they happened, because two things post **live, mid-turn**: a Band messaging tool's own room post (a remote/injected band-mcp calling REST as it runs), and the permission pair. So `ACPCollectingClient` doesn't buffer-then-flush — it **streams** finalized chunks to a per-session live sink (`set_sink`) as `session_update`s arrive:
+
+- Consecutive text/thought deltas coalesce into one run, finalized at the next boundary or the turn-end `flush`.
+- A call's `tool_call_update` frames fold by `tool_call_id` into one result, finalized once the call reports a terminal status (`completed`/`failed`).
+- The buffer (`_session_chunks`) still accumulates the finalized chunks — the per-turn record `get_collected_chunks` returns, cleared each turn by `reset_session` (in-memory, not durable) and keyed per session so concurrent rooms don't need a global lock.
 
 `RoomTurnEmitter` (`room_emitter.py`) is the sink: it posts narration (thought/tool_call/tool_result/plan) live, and holds **only** the assistant text until close (the text-fallback decision needs the whole turn). `ACPRuntime.prompt(..., on_chunk=emitter.emit)` registers the sink and `flush`es at turn end.
 
@@ -619,14 +623,13 @@ test, where the markdown-docs run actually executes it.
   readable projection of the observable outcome, not raw internals — e.g.
   `assert reply.outline == ["tool_call (permission)", "message", ...]` over a
   hand-rolled comprehension pulling `message_type` out of each event dict.
-- Always seek a single source of truth. A value or closed vocabulary used in more
-  than one place gets one definition — a constant, a `StrEnum`, or a small helper —
-  that every site references; never re-type the same magic literal in a producer and
-  the consumer that reads it (a typo then fails silently). When you touch code that
-  duplicates one, consolidate it. Keep genuinely distinct vocabularies separate,
-  though — don't merge two sets that only happen to share some values today (e.g. the
-  ACP `ChunkType` a chunk carries vs. the platform `message_type` an event is posted
-  under).
+- Prefer a single source of truth for a value or closed vocabulary consumed in more
+  than one place: give it one definition — a constant, a `StrEnum`, or a small helper
+  — that every site references, rather than re-typing the same magic literal in a
+  producer and the consumer that reads it (a typo then fails silently). Keep genuinely
+  distinct vocabularies separate, though — don't merge two sets that only happen to
+  share some values today (e.g. the ACP `ChunkType` a chunk carries vs. the platform
+  `message_type` an event is posted under).
 - Comments should describe the code as it is, not narrate what changed between versions.
 
 ## Pre-Commit Checklist
