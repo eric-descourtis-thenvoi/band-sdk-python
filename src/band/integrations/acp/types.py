@@ -28,11 +28,16 @@ class CollectedChunk:
             "tool_result", "plan").
         content: The text content of the chunk.
         metadata: Additional metadata (e.g., tool_call_id, status).
+        from_raw: For tool_result chunks, True when ``content`` is a stringified
+            ``rawOutput`` fallback rather than readable content-block text. Lets
+            the collapse of repeated tool_call_updates prefer the readable frame
+            (see ``ACPCollectingClient._merge_tool_result``); ignored otherwise.
     """
 
     chunk_type: str
     content: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    from_raw: bool = False
 
 
 @dataclass

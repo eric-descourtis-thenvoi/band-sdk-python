@@ -166,6 +166,10 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
         self._session_chunks: dict[str, list[CollectedChunk]] = {}
         self._permission_handlers: dict[str, PermissionHandler] = {}
         self._self_reporting_call_ids: dict[str, set[str]] = {}
+        # Per session, the canonical tool_result chunk for each tool_call_id, so a
+        # stream of tool_call_updates for one call collapses into a single room
+        # event (see _add_tool_result). Reset per turn in reset_session.
+        self._result_chunks: dict[str, dict[str, CollectedChunk]] = {}
 
     async def session_update(
         self, session_id: str, update: object, **kwargs: object
@@ -239,19 +243,25 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
             metadata["self_reporting"] = True
             if status in ("completed", "failed"):
                 self._self_reporting_call_ids[session_id].discard(tool_call_id)
-        raw_output = getattr(update, "raw_output", "")
-        content = str(raw_output) if raw_output else ""
-        if not content:
-            # Some agents (e.g. Copilot's ACP agent) report tool output only via
-            # the ``content`` block list, leaving ``rawOutput`` unset — fall back
-            # to it before giving up, so real output isn't dropped on the floor.
-            content = self._extract_text_from_tool_content(
-                getattr(update, "content", None)
-            )
+        # Prefer the human-readable content blocks over ``rawOutput``. An agent's
+        # terminal update often carries the structured result object in
+        # ``rawOutput`` (e.g. Copilot's ``{'content': ..., 'contents': [...]}``),
+        # which stringifies into an unreadable dict; the content blocks hold the
+        # same output as plain text. Fall back to ``rawOutput`` only when there are
+        # no content blocks, so an agent that reports output *only* via
+        # ``rawOutput`` still surfaces it (a blank result keeps the placeholder
+        # guard). ``from_raw`` records the fallback so _merge_tool_result never
+        # overwrites clean text with a later raw-only frame.
+        content = self._extract_text_from_tool_content(getattr(update, "content", None))
+        from_raw = not content
+        if from_raw:
+            raw_output = getattr(update, "raw_output", "")
+            content = str(raw_output) if raw_output else ""
         return CollectedChunk(
             chunk_type="tool_result",
             content=content,
             metadata=metadata,
+            from_raw=from_raw,
         )
 
     # Chunk kinds that arrive as a stream of deltas for one logical message, so a
@@ -261,7 +271,9 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
 
     def _append_chunk(self, session_id: str, chunk: CollectedChunk) -> None:
         buffer = self._session_chunks.setdefault(session_id, [])
-        if (
+        if chunk.chunk_type == "tool_result":
+            self._add_tool_result(session_id, buffer, chunk)
+        elif (
             buffer
             and chunk.chunk_type in self._COALESCED_CHUNK_TYPES
             and buffer[-1].chunk_type == chunk.chunk_type
@@ -269,6 +281,47 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
             buffer[-1].content += chunk.content  # merge the streamed delta
         else:
             buffer.append(chunk)
+
+    def _add_tool_result(
+        self, session_id: str, buffer: list[CollectedChunk], chunk: CollectedChunk
+    ) -> None:
+        """Collapse a call's stream of tool_call_update frames into one result.
+
+        A tool call reports its result over several updates sharing a
+        ``tool_call_id``; the first is buffered as the call's result and every later
+        frame folds into it, so the room sees one event. A frame with no id (or the
+        first for an id) can't fold into anything and is appended on its own.
+        """
+        call_id = str(chunk.metadata.get("tool_call_id", ""))
+        results = self._result_chunks.setdefault(session_id, {})
+        result = results.get(call_id) if call_id else None
+        if result is None:
+            # First frame for this id, or a frame with no id to correlate: it
+            # starts its own result. Only a real id is remembered, so later
+            # frames can fold into it.
+            buffer.append(chunk)
+            if call_id:
+                results[call_id] = chunk
+            return
+        # Fold this frame in: the last status seen wins, self-reporting stays
+        # sticky, and the best frame's content survives (see _result_key).
+        result.metadata["status"] = chunk.metadata.get(
+            "status", result.metadata.get("status")
+        )
+        if chunk.metadata.get("self_reporting"):
+            result.metadata["self_reporting"] = True
+        best = max(result, chunk, key=self._result_key)
+        result.content, result.from_raw = best.content, best.from_raw
+
+    @staticmethod
+    def _result_key(chunk: CollectedChunk) -> tuple[bool, bool, int]:
+        """Total order over a call's result frames, highest wins: non-empty beats
+        empty, readable content-block text beats a ``rawOutput`` dump, then the
+        longer (more complete) frame. Being a total order, ``max`` picks the best
+        frame no matter what order the frames arrived in.
+        """
+        has_text = bool(chunk.content)
+        return has_text, has_text and not chunk.from_raw, len(chunk.content)
 
     async def request_permission(  # type: ignore[override]  # ACP Client uses specific types; we widen to object
         self,
@@ -303,6 +356,7 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
         self._session_chunks.pop(session_id, None)
         self._permission_handlers.pop(session_id, None)
         self._self_reporting_call_ids.pop(session_id, None)
+        self._result_chunks.pop(session_id, None)
 
     def get_collected_text(self, session_id: str | None = None) -> str:
         if session_id is not None:

@@ -38,6 +38,8 @@ from acp.agent.connection import AgentSideConnection
 from acp.helpers import (
     plan_entry,
     start_tool_call,
+    text_block,
+    tool_content,
     update_agent_message_text,
     update_agent_thought_text,
     update_plan,
@@ -223,6 +225,44 @@ class FakeACPAgent:
                     sid,
                     update_tool_call(tool_call_id, raw_output=result, status=status),
                 )
+
+        self._script.append(_action)
+        return self
+
+    def will_stream_tool_result(
+        self,
+        tool_call_id: str,
+        title: str,
+        *,
+        text: str,
+        raw_output: Any,
+    ) -> FakeACPAgent:
+        """Report one tool call across several tool_call_updates, as real agents do.
+
+        Emits a start, two in-progress frames carrying the readable output as
+        content blocks, then a terminal frame carrying only the structured
+        ``rawOutput`` (which stringifies to an unreadable dict). This is the shape
+        that makes a naive bridge post the same result several times — the last one
+        raw — so it exercises the client's collapse-and-prefer-clean behavior.
+        """
+        blocks = [tool_content(text_block(text))]
+
+        async def _action(a: FakeACPAgent, sid: str) -> None:
+            await a.emit(sid, start_tool_call(tool_call_id, title))
+            await a.emit(
+                sid,
+                update_tool_call(tool_call_id, content=blocks, status="in_progress"),
+            )
+            await a.emit(
+                sid,
+                update_tool_call(tool_call_id, content=blocks, status="in_progress"),
+            )
+            await a.emit(
+                sid,
+                update_tool_call(
+                    tool_call_id, raw_output=raw_output, status="completed"
+                ),
+            )
 
         self._script.append(_action)
         return self

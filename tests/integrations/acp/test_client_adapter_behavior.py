@@ -118,6 +118,30 @@ async def test_tool_call_and_result_relayed_as_events(fake_agent) -> None:
 
 
 @pytest.mark.asyncio
+async def test_streamed_tool_result_updates_collapse_into_one_event(fake_agent) -> None:
+    """One tool call reported over several ACP updates posts exactly one tool_result.
+
+    A real agent streams a call's result as a start plus a run of tool_call_updates
+    sharing an id — readable content-block frames, then a terminal frame carrying
+    only the structured ``rawOutput``. The room must see one result event with the
+    readable listing, not one event per frame and not the stringified dict.
+    """
+    listing = "AGENTS.md\nCHANGELOG.md\nsrc\ntests"
+    fake_agent.will_stream_tool_result(
+        "tc-ls",
+        "List repository root files",
+        text=listing,
+        raw_output={"content": listing, "shellId": 0, "exitCode": 0},
+    )
+
+    async with acp_adapter(fake_agent) as session:
+        reply = await session.send("run ls", room="room-1")
+
+    assert len(reply.tool_results) == 1
+    assert reply.tool_results[0]["content"] == listing
+
+
+@pytest.mark.asyncio
 async def test_plan_relayed_as_task_event(fake_agent) -> None:
     fake_agent.will_plan("step one", "step two")
     async with acp_adapter(fake_agent) as session:
