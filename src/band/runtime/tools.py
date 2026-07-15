@@ -711,10 +711,10 @@ class ListMyPeersInput(BaseModel):
 # Tool names whose successful call posts a visible message into the room.
 # Bridge adapters (copilot_sdk, codex, ACP client) use this to suppress their
 # fallback text relay once the turn has already replied in the room, so the
-# reply is delivered exactly once. band-mcp 1.4.0+ advertises the SDK-native
+# reply is delivered exactly once. band-mcp 1.3.2+ advertises the SDK-native
 # ``band_send_message`` (its registrar reuses these SDK tool definitions), which
 # the ``<server>-`` prefix match already covers; ``create_agent_chat_message``
-# is the legacy band-mcp <=1.3 spelling, kept so older out-of-process servers
+# is the legacy band-mcp <=1.3.1 spelling, kept so older out-of-process servers
 # still match.
 ROOM_POSTING_TOOL_NAMES: frozenset[str] = frozenset(
     {"band_send_message", "create_agent_chat_message"}
@@ -732,8 +732,8 @@ def is_room_posting_tool(tool_name: str) -> bool:
     """True when a successful call of ``tool_name`` posts a message to the room.
 
     Tolerates the one MCP naming convention seen in practice: a ``<server>-``
-    prefix (e.g. ``band-band_send_message`` from band-mcp 1.4.0+, or the legacy
-    ``band-create_agent_chat_message`` from band-mcp <=1.3). Other spellings
+    prefix (e.g. ``band-band_send_message`` from band-mcp 1.3.2+, or the legacy
+    ``band-create_agent_chat_message`` from band-mcp <=1.3.1). Other spellings
     (``mcp__server__tool``, ``server.tool``) are not matched — no wired backend
     uses them, and a miss only costs a duplicate reply (the pre-suppression
     behavior), never a wrong post. Extend here when such a backend is added.
@@ -1187,8 +1187,8 @@ def get_band_tool_category(name: str) -> str | None:
 # Platform tools whose execution is already visible in the room (they post
 # messages/events themselves), so adapters must not also report them as
 # tool_call/tool_result events. band-mcp advertises these under the SDK-native
-# ``band_send_message``/``band_send_event`` names (1.4.0+ registrar); the
-# legacy ``create_agent_chat_message`` (band-mcp <=1.3) is kept for older
+# ``band_send_message``/``band_send_event`` names (1.3.2+ registrar); the
+# legacy ``create_agent_chat_message`` (band-mcp <=1.3.1) is kept for older
 # servers, matched via the ``<server>-`` prefix rule. Adapters may extend this
 # with local names.
 SELF_REPORTING_TOOL_NAMES: frozenset[str] = frozenset(
