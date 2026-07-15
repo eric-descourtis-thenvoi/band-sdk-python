@@ -15,10 +15,25 @@ from band.integrations.acp.client_types import (
     ACPClientSessionState,
     BandACPClient,
 )
+from band.integrations.acp.room_emitter import turn_replied_in_room
 from band.integrations.acp.types import CollectedChunk
 from band.testing import FakeAgentTools
 
 from .conftest import make_platform_message
+
+
+def permission_events(tools: FakeAgentTools) -> list[dict[str, object]]:
+    """The permission tool_call/tool_result events the handler posted to the room."""
+    return [
+        event
+        for event in tools.events_sent
+        if (event.get("metadata") or {}).get("permission_request")
+    ]
+
+
+def event_types(events: list[dict[str, object]]) -> list[object]:
+    """The ordered ``message_type`` of each event — for asserting a pair's shape."""
+    return [event["message_type"] for event in events]
 
 
 class TestACPClientAdapterInit:
@@ -662,15 +677,8 @@ class TestACPClientAdapterPermissionHandler:
 
         # A permission request is a tool interaction, so its transcript entry must
         # be closed by a result carrying the same tool call id.
-        perm_events = [
-            e
-            for e in tools.events_sent
-            if e.get("metadata", {}).get("permission_request")
-        ]
-        assert [event["message_type"] for event in perm_events] == [
-            "tool_call",
-            "tool_result",
-        ]
+        perm_events = permission_events(tools)
+        assert event_types(perm_events) == ["tool_call", "tool_result"]
         assert all(
             event["metadata"]["tool_call_id"] == "tc-perm-1" for event in perm_events
         )
@@ -720,12 +728,7 @@ class TestACPClientAdapterPermissionHandler:
             room_id="room-123",
         )
 
-        perm_events = [
-            e
-            for e in tools.events_sent
-            if e.get("metadata", {}).get("permission_request")
-        ]
-        assert perm_events == []
+        assert permission_events(tools) == []
 
     @pytest.mark.asyncio
     async def test_permission_handler_selects_allow_option(
@@ -805,15 +808,8 @@ class TestACPClientAdapterPermissionHandler:
         )
 
         assert captured_result == {"outcome": {"outcome": "cancelled"}}
-        perm_events = [
-            event
-            for event in tools.events_sent
-            if event.get("metadata", {}).get("permission_request")
-        ]
-        assert [event["message_type"] for event in perm_events] == [
-            "tool_call",
-            "tool_result",
-        ]
+        perm_events = permission_events(tools)
+        assert event_types(perm_events) == ["tool_call", "tool_result"]
         assert all(
             event["metadata"]["tool_call_id"] == "tc-danger" for event in perm_events
         )
@@ -851,15 +847,8 @@ class TestACPClientAdapterPermissionHandler:
             room_id="room-123",
         )
 
-        perm_events = [
-            e
-            for e in tools.events_sent
-            if e.get("metadata", {}).get("permission_request")
-        ]
-        assert [event["message_type"] for event in perm_events] == [
-            "tool_call",
-            "tool_result",
-        ]
+        perm_events = permission_events(tools)
+        assert event_types(perm_events) == ["tool_call", "tool_result"]
         assert all(event["metadata"]["tool_name"] == "bash" for event in perm_events)
 
 
@@ -1151,7 +1140,7 @@ class TestResolveLauncher:
 
 
 class TestTurnRepliedInRoom:
-    """`_turn_replied_in_room`: detect a room post from the ACP tool-call stream.
+    """`turn_replied_in_room`: detect a room post from the ACP tool-call stream.
 
     ACP has no structured tool-name field and tools may run out-of-process, so the
     adapter reads the collected chunk stream. These lock the id-correlation edges.
@@ -1170,7 +1159,7 @@ class TestTurnRepliedInRoom:
                 status="completed",
             )
         ]
-        assert ACPClientAdapter._turn_replied_in_room(chunks)
+        assert turn_replied_in_room(chunks)
 
     def test_posting_call_correlated_to_completed_result_counts(self) -> None:
         # The tool_call arrives before its terminal status; the completed result seals it.
@@ -1183,7 +1172,7 @@ class TestTurnRepliedInRoom:
             ),
             self._chunk("tool_result", "", tool_call_id="tc-1", status="completed"),
         ]
-        assert ACPClientAdapter._turn_replied_in_room(chunks)
+        assert turn_replied_in_room(chunks)
 
     def test_empty_ids_do_not_cross_match(self) -> None:
         # A not-yet-completed posting call with NO id and a completed NON-posting result
@@ -1193,7 +1182,7 @@ class TestTurnRepliedInRoom:
             self._chunk("tool_call", "band_send_message", status="in_progress"),
             self._chunk("tool_result", "", status="completed"),
         ]
-        assert not ACPClientAdapter._turn_replied_in_room(chunks)
+        assert not turn_replied_in_room(chunks)
 
     def test_non_posting_tool_never_counts(self) -> None:
         chunks = [
@@ -1201,4 +1190,4 @@ class TestTurnRepliedInRoom:
                 "tool_call", "get_weather", tool_call_id="tc-1", status="completed"
             )
         ]
-        assert not ACPClientAdapter._turn_replied_in_room(chunks)
+        assert not turn_replied_in_room(chunks)
