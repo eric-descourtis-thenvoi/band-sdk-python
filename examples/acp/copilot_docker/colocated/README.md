@@ -79,8 +79,8 @@ Then message the `copilot_acp_agent` from a Band room.
   built-in tools run unattended in this isolated container (Band/MCP tools are
   auto-approved via the ACP handler). Drop the flag to gate built-in tools.
 - **Room routing.** band-mcp chat/message tools take a `chat_id` argument per call.
-- **Platform base URL.** band-mcp defaults to `https://app.thenvoi.com`;
-  `entrypoint.sh` points it at `BAND_REST_URL` (default `https://app.band.ai`).
+- **Platform base URL.** band-mcp (`BAND_BASE_URL`) defaults to `https://app.band.ai`;
+  `entrypoint.sh` points it at `BAND_REST_URL` (same default) via that variable.
 
 ## Compose vs colocated
 
