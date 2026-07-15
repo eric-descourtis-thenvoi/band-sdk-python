@@ -633,21 +633,21 @@ class TestACPClientAdapterPermissionHandler:
         assert len(adapter_with_mocks._runtime._client._permission_handlers) > 0
 
     @pytest.mark.asyncio
-    async def test_permission_handler_posts_paired_events_for_self_reporting_tool(
+    async def test_permission_handler_skips_pair_for_approved_band_send_message(
         self, adapter_with_mocks: ACPClientAdapter
     ) -> None:
-        """An approved self-reporting tool renders as a matched event pair.
+        """An approved band_send_message grants silently, like any other tool.
 
-        Its execution events are suppressed (the tool posts its own room output),
-        so the permission pair is the only record that the call happened — unlike
-        an ordinary tool, whose real tool_call/tool_result already show it.
+        Regression guard: band_send_message/band_send_event were formerly
+        special-cased ("self-reporting") to post a synthetic permission pair
+        since their execution events were suppressed. Now nothing is suppressed —
+        if the tool executes, its own real tool_call/tool_result narrate it, so no
+        pair should be posted here either.
         """
         tools = FakeAgentTools()
         msg = make_platform_message("Hello", room_id="room-123")
 
-        # Simulate permission request during prompt
         async def mock_prompt(**kwargs):
-            # Trigger the permission handler directly
             tool_call = MagicMock()
             tool_call.title = "band_send_message"
             tool_call.tool_call_id = "tc-perm-1"
@@ -675,17 +675,7 @@ class TestACPClientAdapterPermissionHandler:
             room_id="room-123",
         )
 
-        # A permission request is a tool interaction, so its transcript entry must
-        # be closed by a result carrying the same tool call id.
-        perm_events = permission_events(tools)
-        assert event_types(perm_events) == ["tool_call", "tool_result"]
-        assert all(
-            event["metadata"]["tool_call_id"] == "tc-perm-1" for event in perm_events
-        )
-        assert perm_events[0]["metadata"]["tool_name"] == "band_send_message"
-        assert perm_events[0]["metadata"]["auto_allowed"] is True
-        assert perm_events[1]["content"] == "Permission approved"
-        assert perm_events[1]["metadata"]["permission_outcome"] == "approved"
+        assert permission_events(tools) == []
 
     @pytest.mark.asyncio
     async def test_permission_handler_skips_pair_for_approved_ordinary_tool(

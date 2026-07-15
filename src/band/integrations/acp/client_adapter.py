@@ -35,13 +35,9 @@ from band.integrations.mcp.backends import (
     create_band_mcp_backend,
 )
 from band.integrations.acp.room_emitter import RoomTurnEmitter
-from band.integrations.acp.types import PermissionOutcome
 from band.runtime.custom_tools import CustomToolDef
 from band.runtime.mcp_server import LocalMCPServer
-from band.runtime.tools import (
-    is_self_reporting_tool,
-    iter_tool_definitions,
-)
+from band.runtime.tools import iter_tool_definitions
 
 logger = logging.getLogger(__name__)
 
@@ -250,29 +246,21 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
                 option_id,
             )
 
-            approved = option_id is not None
-            if approved:
-                permission_outcome = PermissionOutcome.APPROVED
-                response = allow_permission(option_id)
-            else:
-                permission_outcome = PermissionOutcome.CANCELLED
-                response = cancel_permission()
+            if option_id is not None:
+                return allow_permission(option_id)
 
-            # Surface the permission as a tool_call/tool_result pair only when the
-            # call's own execution events won't already show it: a self-reporting
-            # tool (band_send_message/band_send_event — its execution events are
-            # suppressed) or a denied request (the tool never runs). For an approved
-            # ordinary tool the real tool_call/tool_result cover it, so emitting the
-            # pair too would duplicate the call in the room.
-            if is_self_reporting_tool(tool_name) or not approved:
-                await emitter.open_permission(
-                    tool_name=tool_name,
-                    tool_call_id=tool_call_id,
-                    session_id=session_id,
-                    approved=approved,
-                    outcome=permission_outcome.value,
-                )
-            return response
+            # A denied request never runs the tool, so there is no execution
+            # frame to show it happened — post a synthetic tool_call/tool_result
+            # pair as the only record. An approved request grants silently: if
+            # the tool then executes, its own real tool_call/tool_result narrate
+            # it like any other tool (no pair needed).
+            await emitter.open_permission(
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                session_id=session_id,
+                outcome="cancelled",
+            )
+            return cancel_permission()
 
         return handler
 

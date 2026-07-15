@@ -1184,28 +1184,6 @@ def get_band_tool_category(name: str) -> str | None:
     return _TOOL_CATEGORIES.get(name)
 
 
-# Platform tools whose execution is already visible in the room (they post
-# messages/events themselves), so adapters must not also report them as
-# tool_call/tool_result events. band-mcp advertises these under the SDK-native
-# ``band_send_message``/``band_send_event`` names (1.3.2+ registrar); the
-# legacy ``create_agent_chat_message`` (band-mcp <=1.3.1) is kept for older
-# servers, matched via the ``<server>-`` prefix rule. Adapters may extend this
-# with local names.
-SELF_REPORTING_TOOL_NAMES: frozenset[str] = frozenset(
-    {"band_send_message", "band_send_event", "create_agent_chat_message"}
-)
-
-
-def is_self_reporting_tool(tool_name: str) -> bool:
-    """True when executing ``tool_name`` already creates visible room output.
-
-    ACP and other MCP clients may prefix a server name (for example,
-    ``band-band_send_message``), so matching follows the same convention as
-    :func:`is_room_posting_tool`.
-    """
-    return _matches_tool_name(tool_name, SELF_REPORTING_TOOL_NAMES)
-
-
 def mcp_tool_names(names: frozenset[str]) -> list[str]:
     """Convert base tool names to MCP-prefixed names for Claude SDK.
 

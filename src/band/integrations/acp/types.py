@@ -8,13 +8,6 @@ from enum import StrEnum
 from typing import Any
 
 
-class PermissionOutcome(StrEnum):
-    """User-visible outcome recorded for an ACP permission request."""
-
-    APPROVED = "approved"
-    CANCELLED = "cancelled"
-
-
 class ChunkType(StrEnum):
     """The kind of a parsed ACP session-update chunk.
 

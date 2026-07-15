@@ -17,7 +17,6 @@ from band.integrations.acp.client_profiles import (
     NoopACPClientProfile,
 )
 from band.integrations.acp.types import ChunkType, CollectedChunk, ToolStatus
-from band.runtime.tools import is_self_reporting_tool
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +165,6 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
         self._profile = profile or NoopACPClientProfile()
         self._session_chunks: dict[str, list[CollectedChunk]] = {}
         self._permission_handlers: dict[str, PermissionHandler] = {}
-        self._self_reporting_call_ids: dict[str, set[str]] = {}
         # Per session, the canonical tool_result chunk for each tool_call_id, so a
         # call's stream of tool_call_updates folds into one result, finalized once
         # when the call reaches a terminal status (see _ingest_tool_result). Reset
@@ -182,13 +180,11 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
         self, session_id: str, update: object, **kwargs: object
     ) -> None:
         del kwargs
-        chunk = self._chunk_from_update(session_id, update)
+        chunk = self._chunk_from_update(update)
         if chunk is not None:
             await self._ingest(session_id, chunk)
 
-    def _chunk_from_update(
-        self, session_id: str, update: object
-    ) -> CollectedChunk | None:
+    def _chunk_from_update(self, update: object) -> CollectedChunk | None:
         """Parse one ACP session update without mutating the chunk buffer."""
         match getattr(update, "session_update", None):
             case "agent_message_chunk":
@@ -196,9 +192,9 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
             case "agent_thought_chunk":
                 return self._text_chunk(update, ChunkType.THOUGHT)
             case "tool_call":
-                return self._tool_call_chunk(session_id, update)
+                return self._tool_call_chunk(update)
             case "tool_call_update":
-                return self._tool_result_chunk(session_id, update)
+                return self._tool_result_chunk(update)
             case "plan":
                 entries = getattr(update, "entries", [])
                 plan_text = "\n".join(
@@ -219,41 +215,27 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
             content=self._extract_text_from_content(update),
         )
 
-    def _tool_call_chunk(self, session_id: str, update: object) -> CollectedChunk:
+    def _tool_call_chunk(self, update: object) -> CollectedChunk:
         tool_call_id = getattr(update, "tool_call_id", "")
         title = getattr(update, "title", "")
-        self_reporting = is_self_reporting_tool(title)
         metadata = {
             "tool_call_id": tool_call_id,
             "raw_input": getattr(update, "raw_input", None),
             "status": getattr(update, "status", ToolStatus.IN_PROGRESS),
         }
-        if self_reporting:
-            metadata["self_reporting"] = True
-            if tool_call_id:
-                self._self_reporting_call_ids.setdefault(session_id, set()).add(
-                    tool_call_id
-                )
         return CollectedChunk(
             chunk_type=ChunkType.TOOL_CALL,
             content=title,
             metadata=metadata,
         )
 
-    def _tool_result_chunk(self, session_id: str, update: object) -> CollectedChunk:
+    def _tool_result_chunk(self, update: object) -> CollectedChunk:
         tool_call_id = getattr(update, "tool_call_id", "")
         status = getattr(update, "status", ToolStatus.COMPLETED)
-        self_reporting = tool_call_id in self._self_reporting_call_ids.get(
-            session_id, set()
-        )
         metadata = {
             "tool_call_id": tool_call_id,
             "status": status,
         }
-        if self_reporting:
-            metadata["self_reporting"] = True
-            if status in (ToolStatus.COMPLETED, ToolStatus.FAILED):
-                self._self_reporting_call_ids[session_id].discard(tool_call_id)
         # Prefer the human-readable content blocks over ``rawOutput``. An agent's
         # terminal update often carries the structured result object in
         # ``rawOutput`` (e.g. Copilot's ``{'content': ..., 'contents': [...]}``),
@@ -350,15 +332,12 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
         """Fold a later frame into a call's canonical result.
 
         The last *reported* status wins — ACP status is optional, so a frame that
-        omits it (status is None) must not regress a recorded "completed";
-        self-reporting stays sticky; the more readable/complete content survives
-        (see _result_key).
+        omits it (status is None) must not regress a recorded "completed"; the more
+        readable/complete content survives (see _result_key).
         """
         incoming_status = chunk.metadata.get("status")
         if incoming_status is not None:
             canonical.metadata["status"] = incoming_status
-        if chunk.metadata.get("self_reporting"):
-            canonical.metadata["self_reporting"] = True
         best = max(canonical, chunk, key=self._result_key)
         canonical.content, canonical.from_raw = best.content, best.from_raw
 
@@ -427,7 +406,6 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
     def reset_session(self, session_id: str) -> None:
         self._session_chunks.pop(session_id, None)
         self._permission_handlers.pop(session_id, None)
-        self._self_reporting_call_ids.pop(session_id, None)
         self._result_chunks.pop(session_id, None)
         self._emitted_results.pop(session_id, None)
         self._open_runs.pop(session_id, None)

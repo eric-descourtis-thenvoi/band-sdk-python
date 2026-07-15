@@ -54,10 +54,9 @@ async def test_band_tool_call_suppresses_text_fallback(fake_agent) -> None:
     async with acp_adapter(fake_agent) as session:
         reply = await session.send("question?")
 
-    # Fallback text suppressed and the self-reporting call not narrated, so the only
-    # room write is the bookkeeping task event.
+    # Fallback text suppressed, but the call is narrated like any other tool.
     assert reply.texts == []
-    assert reply.outline == ["task"]
+    assert reply.outline == ["tool_call", "tool_result", "task"]
 
 
 @pytest.mark.asyncio
@@ -77,7 +76,7 @@ async def test_prefixed_legacy_band_tool_call_suppresses_text_fallback(
         reply = await session.send("question?")
 
     assert reply.texts == []
-    assert reply.outline == ["task"]
+    assert reply.outline == ["tool_call", "tool_result", "task"]
 
 
 @pytest.mark.asyncio
@@ -198,8 +197,9 @@ async def test_ordinary_tool_permission_granted_without_a_bubble(fake_agent) -> 
 
 
 @pytest.mark.asyncio
-async def test_band_mcp_reply_is_not_replayed_as_acp_tool_events(fake_agent) -> None:
-    """A room-visible Band message must not receive redundant ACP narration."""
+async def test_band_mcp_reply_is_narrated_around_the_message(fake_agent) -> None:
+    """A room-visible Band message still gets real ACP tool_call/tool_result
+    narration, straddling the message it posts — like any other tool call."""
     fake_agent.will_call_mcp_tool(
         "tc-message",
         "band_send_message",
@@ -213,15 +213,16 @@ async def test_band_mcp_reply_is_not_replayed_as_acp_tool_events(fake_agent) -> 
     async with acp_adapter(fake_agent, inject_band_tools=True) as session:
         reply = await session.send("send the reply", room="room-1")
 
-    assert reply.outline == ["message", "task"]
+    assert reply.outline == ["tool_call", "message", "tool_result", "task"]
     assert reply.texts == ["Reply from the agent"]
-    assert reply.tool_calls == []
-    assert reply.tool_results == []
+    assert len(reply.tool_calls) == 1
+    assert len(reply.tool_results) == 1
 
 
 @pytest.mark.asyncio
-async def test_band_mcp_event_is_not_replayed_as_acp_tool_events(fake_agent) -> None:
-    """A room-visible Band event must not receive redundant ACP narration."""
+async def test_band_mcp_event_is_narrated_around_the_thought(fake_agent) -> None:
+    """A room-visible Band event still gets real ACP tool_call/tool_result
+    narration, straddling the event it posts — like any other tool call."""
     fake_agent.will_call_mcp_tool(
         "tc-event",
         "band_send_event",
@@ -235,15 +236,21 @@ async def test_band_mcp_event_is_not_replayed_as_acp_tool_events(fake_agent) -> 
     async with acp_adapter(fake_agent, inject_band_tools=True) as session:
         reply = await session.send("do the work", room="room-1")
 
-    assert reply.outline == ["thought", "task"]
+    assert reply.outline == ["tool_call", "thought", "tool_result", "task"]
     assert reply.thoughts == ["Working on it"]
-    assert reply.tool_calls == []
-    assert reply.tool_results == []
+    assert len(reply.tool_calls) == 1
+    assert len(reply.tool_results) == 1
 
 
 @pytest.mark.asyncio
 async def test_permissioned_band_mcp_turn_has_one_causal_transcript(fake_agent) -> None:
-    """Permission, tool execution, and visible reply must retain causal order."""
+    """Permission, tool execution, and visible reply must retain causal order.
+
+    The permission grants silently (no synthetic pair — see
+    test_permission_handler_skips_pair_for_approved_band_send_message); the
+    call's own real tool_call/tool_result narration straddles the message
+    instead, so the room reads the same call -> reply -> result shape.
+    """
     fake_agent.will_ask_permission(
         tool_call_id="tc-message",
         title="band_send_message",
@@ -260,34 +267,28 @@ async def test_permissioned_band_mcp_turn_has_one_causal_transcript(fake_agent) 
     async with acp_adapter(fake_agent, inject_band_tools=True) as session:
         reply = await session.send("send the reply", room="room-1")
 
-    # The permission pair straddles the message the tool posted: requested -> the
-    # reply -> approved (the outcome lands once the tool completes).
-    assert reply.outline == [
-        "tool_call (permission)",
-        "message",
-        "tool_result (permission)",
-        "task",
-    ]
-    requested, message, approved, _task = reply.transcript
-    assert requested.metadata["permission_request"] is True
-    assert requested.metadata["tool_call_id"] == "tc-message"
+    assert reply.outline == ["tool_call", "message", "tool_result", "task"]
+    assert fake_agent.approved is True
+    assert reply.permissions == []
+    call, message, result, _task = reply.transcript
+    assert call.metadata["tool_call_id"] == "tc-message"
     assert message.content == "Reply from the agent"
-    assert approved.metadata["permission_request"] is True
-    assert approved.metadata["permission_outcome"] == "approved"
-    assert approved.metadata["tool_call_id"] == "tc-message"
+    assert result.metadata["tool_call_id"] == "tc-message"
 
 
 @pytest.mark.asyncio
 async def test_turn_events_post_in_causal_order(fake_agent) -> None:
-    """Narration, permission, and the in-room reply keep the order they happened.
+    """Narration and the in-room reply keep the order they happened.
 
     The reply-before-narration bug: a Band messaging tool posts to the room as it
-    runs (mid-turn), and a permission event posts live too, but narration used to be
-    flushed only after the whole turn — so it landed after the live events instead
-    of where it happened. A turn that thinks, calls an ordinary tool, then posts via
-    band_send_message must render thought → tool call/result → permission requested
-    → room message → permission approved → task, in that order (narration is not
-    trailing at the end, and the permission pair straddles the message it posted).
+    runs (mid-turn), but narration used to be flushed only after the whole turn —
+    so it landed after the live events instead of where it happened. A turn that
+    thinks, calls an ordinary tool, then posts via band_send_message must render
+    thought → tool call/result (get_weather) → tool call → room message → tool
+    result → task, in that order (narration is not trailing at the end, and
+    band_send_message's own tool_call/tool_result straddle the message it posted,
+    same as any other tool call). The permission grants silently — see
+    test_permissioned_band_mcp_turn_has_one_causal_transcript.
     """
     fake_agent.will_think("Checking the weather first.").will_call_tool(
         "tc-weather", "get_weather", raw_input={"city": "SF"}, result="72F"
@@ -310,9 +311,9 @@ async def test_turn_events_post_in_causal_order(fake_agent) -> None:
         "thought",
         "tool_call",  # the ordinary get_weather tool
         "tool_result",
-        "tool_call (permission)",  # asked before posting the reply
+        "tool_call",  # band_send_message's own call, asked before posting the reply
         "message",  # the band_send_message post
-        "tool_result (permission)",  # outcome lands after the message
+        "tool_result",  # band_send_message's own result, lands after the message
         "task",  # session bookkeeping, always last
     ]
     assert reply.texts == ["It's 72F in SF."]
