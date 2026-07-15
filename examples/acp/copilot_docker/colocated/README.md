@@ -70,8 +70,8 @@ Then message the `copilot_acp_agent` from a Band room.
 - **Auth model.** band-mcp holds one Band identity (its agent key); MCP clients
   present no credentials. Colocation keeps band-mcp bound to loopback and never
   published — it is unreachable from outside the container.
-- **Copilot auth.** The Copilot CLI authenticates from `GITHUB_TOKEN` /
-  `GH_TOKEN` / `COPILOT_GITHUB_TOKEN` **or** a stored `copilot login`. A container
+- **Copilot auth.** The Copilot CLI checks `COPILOT_GITHUB_TOKEN`, then
+  `GH_TOKEN`, then `GITHUB_TOKEN`, or uses a stored `copilot login`. A container
   has no stored login, so set a token env (v2 fine-grained PAT with "Copilot
   Requests", or a Copilot/`gh` OAuth token — classic `ghp_` / Actions `ghs_`
   tokens are rejected).

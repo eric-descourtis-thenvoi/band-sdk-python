@@ -57,9 +57,9 @@ class CollectedChunk:
         deduped: For tool_result chunks, True when ``content`` was recovered from
             a verified self-duplicating ``rawOutput.structuredContent`` echo (see
             ``_unwrap_structured_result``) rather than taken as-is from content
-            blocks. A deduped chunk is known-clean, so folding a later frame must
-            not regress it back to a duplicated value just because it arrived
-            later (see ``ACPCollectingClient._fold_result``); ignored otherwise.
+            blocks. Folding a later frame that merely re-reports that same echo
+            (without its structured proof) must not regress the cleaned value
+            (see ``ACPCollectingClient._fold_result``); ignored otherwise.
     """
 
     chunk_type: str

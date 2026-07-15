@@ -80,21 +80,39 @@ def cancel_permission() -> dict[str, object]:
     return {"outcome": {"outcome": "cancelled"}}
 
 
-def _unwrap_structured_result(raw_output: object) -> str | None:
-    """Recover a tool result's value from a FastMCP primitive-output wrap.
+def _is_result_echo(content: str, result: str) -> bool:
+    """True when ``content`` is ``result`` followed by its own serialized
+    ``{"result": result}`` wrapper -- the duplicated-echo signature (see
+    ``_unwrap_structured_result``). The trailing wrapper is parsed, not
+    string-compared, so its separators/escaping don't matter.
+    """
+    if not content.startswith(result):
+        return False
+    trailing = content[len(result) :].strip()
+    try:
+        return json.loads(trailing) == {"result": result}
+    except json.JSONDecodeError:
+        return False
+
+
+def _unwrap_structured_result(content: str, raw_output: object) -> str | None:
+    """Recover a tool result's value from a duplicated FastMCP primitive echo.
 
     FastMCP wraps a primitive (``str``/``int``/...) tool return as
     ``structuredContent = {"result": <value>}`` alongside a plain-text
     ``content`` block holding that same value. Some ACP bridges (observed:
-    Copilot) forward *both* into one text block, which visibly duplicates the
-    value when it was already a JSON-serialized string. ``structuredContent``
-    is a real MCP field carrying the least-processed copy, so prefer it,
-    re-serialized once, whenever ``raw_output`` carries it in exactly this
-    single-key ``{"result": <json string>}`` shape.
+    Copilot) forward *both* into one text block, so ``content`` reads as the
+    value followed by its own re-wrapped JSON encoding. Unwrap only on proof
+    of exactly that: ``raw_output`` carries the single-key
+    ``{"result": <string>}`` shape *and* ``content`` is that value plus its
+    serialized wrapper (see ``_is_result_echo``).
 
-    Returns ``None`` (leave ``content`` untouched) for anything else -- a
-    ``structuredContent`` in a different shape may be a genuinely distinct,
-    richer payload this must not clobber.
+    Returns ``None`` (leave ``content`` untouched) for anything short of the
+    full echo signature. A bridge may synthesize a distinct human-facing
+    ``content`` -- a summary, or prose that merely quotes the structured value
+    -- alongside a tool's real structured result; that legitimate text must
+    never be clobbered just because the shape matches or the value appears
+    somewhere within it.
     """
     if not isinstance(raw_output, dict):
         return None
@@ -102,13 +120,9 @@ def _unwrap_structured_result(raw_output: object) -> str | None:
     if not isinstance(structured, dict) or set(structured) != {"result"}:
         return None
     result = structured["result"]
-    if not isinstance(result, str):
-        return None
-    try:
-        parsed = json.loads(result)
-    except json.JSONDecodeError:
-        return None
-    return json.dumps(parsed, indent=2)
+    if isinstance(result, str) and _is_result_echo(content, result):
+        return result
+    return None
 
 
 def tcp_spawn_process(
@@ -289,7 +303,9 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
             # _unwrap_structured_result); prefer it over the content blocks when
             # recognizable, since a bridge that forwards both can duplicate a
             # JSON-serialized string across them.
-            unwrapped = _unwrap_structured_result(getattr(update, "raw_output", None))
+            unwrapped = _unwrap_structured_result(
+                content, getattr(update, "raw_output", None)
+            )
             if unwrapped is not None:
                 content = unwrapped
                 deduped = True
@@ -376,33 +392,28 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
         """Fold a later frame into a call's canonical result.
 
         The last *reported* status wins — ACP status is optional, so a frame that
-        omits it (status is None) must not regress a recorded "completed". A
-        deduped frame (see ``CollectedChunk.deduped``) is verified-clean, so it
-        always outranks one that isn't -- a later frame whose own content still
-        carries a duplicated echo (its ``rawOutput`` didn't match the recognized
-        shape) must not regress an already-cleaned value just because it arrived
-        after it. Between two frames with the same deduped status, ACP ``content``
-        replaces the preceding content collection, so the latest readable frame
-        wins even when it is shorter (e.g. a long-running command's streamed
-        "still running..." progress text superseded by a short "OK"). A raw-only
-        or empty frame, which carries no such replacement semantics, falls back to
-        ranking by completeness (see _result_key).
+        omits it (status is None) must not regress a recorded "completed". A frame
+        that merely re-reports a deduped canonical's duplicated echo (see
+        ``CollectedChunk.deduped``) without its structured proof carries no new
+        information and must not regress the cleaned value; a genuinely new
+        readable result still replaces it. Otherwise ACP ``content`` replaces the
+        preceding content collection, so the latest readable frame wins even when
+        it is shorter (e.g. a long-running command's streamed "still running..."
+        progress text superseded by a short "OK"). A raw-only or empty frame,
+        which carries no such replacement semantics, falls back to ranking by
+        completeness (see _result_key).
         """
         incoming_status = chunk.metadata.get("status")
         if incoming_status is not None:
             canonical.metadata["status"] = incoming_status
-        match (canonical.deduped, chunk.deduped):
-            case (True, False):
-                best = canonical
-            case (False, True):
-                best = chunk
-            case _:
-                if chunk.content and not chunk.from_raw:
-                    best = chunk
-                elif canonical.content and not canonical.from_raw:
-                    best = canonical
-                else:
-                    best = max(canonical, chunk, key=self._result_key)
+        if canonical.deduped and _is_result_echo(chunk.content, canonical.content):
+            best = canonical
+        elif chunk.content and not chunk.from_raw:
+            best = chunk
+        elif canonical.content and not canonical.from_raw:
+            best = canonical
+        else:
+            best = max(canonical, chunk, key=self._result_key)
         canonical.content, canonical.from_raw, canonical.deduped = (
             best.content,
             best.from_raw,

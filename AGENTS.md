@@ -611,7 +611,7 @@ test, where the markdown-docs run actually executes it.
 - Never use `print()` — use `logging` with module-level `logger = logging.getLogger(__name__)`
 - Use `%s` placeholders in log messages for lazy evaluation
 - Use Pydantic v2 for data models; use `model_dump()` not `dict()`
-- Target Python 3.10+; use `list[str]` not `List[str]`, `str | None` not `Optional[str]`
+- Target Python 3.11+; use `list[str]` not `List[str]`, `str | None` not `Optional[str]`
 - Use async/await everywhere in async codebases; use `AsyncMock` for testing async methods
 - Catch `pydantic.ValidationError` separately from generic `Exception`
 - Use `raise ValueError(...)` for missing required config, not `logger.error()` + `sys.exit()`

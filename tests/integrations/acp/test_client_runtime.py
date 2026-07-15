@@ -188,7 +188,44 @@ class TestACPCollectingClientCoalescing:
         await client.session_update("s1", tool_result)
 
         chunks = client.get_collected_chunks("s1")
-        assert chunks[0].content == json.dumps(json.loads(clean), indent=2)
+        assert chunks[0].content == clean
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("content", "result"),
+        [
+            # Distinct human summary; the structured value appears nowhere in it.
+            ("Created message successfully", '{"id": "msg-1"}'),
+            # Prose that merely QUOTES the structured value -- containment is
+            # not the echo signature (no trailing {"result": ...} wrapper).
+            ('Created resource: {"id": 1}', '{"id": 1}'),
+            # Primitive JSON as an accidental prefix of ordinary prose.
+            ("true story: all checks passed", "true"),
+        ],
+    )
+    async def test_tool_result_leaves_distinct_human_content_untouched(
+        self, content: str, result: str
+    ) -> None:
+        """A structuredContent shaped like the primitive-output wrap is not proof
+        of duplication by itself, and neither is the value appearing inside the
+        content. Only the full echo signature (the value followed by its own
+        serialized {"result": ...} wrapper) may replace a bridge's human-facing
+        content."""
+        client = ACPCollectingClient()
+        text_block = MagicMock(text=content)
+        content_item = MagicMock(type="content", content=text_block)
+        tool_result = MagicMock(
+            session_update="tool_call_update",
+            tool_call_id="tc-msg",
+            raw_output={"structuredContent": {"result": result}},
+            content=[content_item],
+            status="completed",
+        )
+
+        await client.session_update("s1", tool_result)
+
+        chunks = client.get_collected_chunks("s1")
+        assert chunks[0].content == content
 
     @pytest.mark.asyncio
     async def test_deduped_tool_result_is_not_regressed_by_a_later_duplicated_frame(
@@ -229,7 +266,45 @@ class TestACPCollectingClientCoalescing:
         )
 
         chunks = client.get_collected_chunks("s1")
-        assert chunks[0].content == json.dumps(json.loads(clean), indent=2)
+        assert chunks[0].content == clean
+
+    @pytest.mark.asyncio
+    async def test_later_final_result_replaces_deduped_progress(self) -> None:
+        """A deduped progress frame is not sacred: a later frame carrying a
+        genuinely new readable result (not a re-report of the same echo) must
+        still replace it, per the usual latest-readable-wins rule. Only the
+        same duplicate re-reported without its structured proof is held off
+        (see test_deduped_tool_result_is_not_regressed_by_a_later_duplicated_frame).
+        """
+        client = ACPCollectingClient()
+        progress = '{"status": "creating"}'
+        progress_echo = progress + "\n\n" + json.dumps({"result": progress})
+
+        def frame(text: str, raw_output: object, status: str) -> MagicMock:
+            text_block = MagicMock(text=text)
+            content_item = MagicMock(type="content", content=text_block)
+            return MagicMock(
+                session_update="tool_call_update",
+                tool_call_id="tc-msg",
+                raw_output=raw_output,
+                content=[content_item],
+                status=status,
+            )
+
+        await client.session_update(
+            "s1",
+            frame(
+                progress_echo,
+                {"structuredContent": {"result": progress}},
+                "in_progress",
+            ),
+        )
+        await client.session_update(
+            "s1", frame("Created msg-1 successfully.", None, "completed")
+        )
+
+        chunks = client.get_collected_chunks("s1")
+        assert chunks[0].content == "Created msg-1 successfully."
 
     @pytest.mark.asyncio
     async def test_tool_result_keeps_content_when_structured_content_is_richer(
