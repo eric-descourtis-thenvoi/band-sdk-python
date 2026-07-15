@@ -69,6 +69,118 @@ def _resolve_launcher(command: list[str]) -> list[str]:
     return [resolved, *command[1:]] if resolved else list(command)
 
 
+class RoomTurnEmitter:
+    """Posts one ACP turn's output to a Band room in causal order.
+
+    A turn's events arrive as a live stream — ``emit`` is called per finalized
+    chunk — so they interleave correctly with the two things that already post
+    mid-turn: a permission pair (``emit_permission``) and a Band messaging tool's
+    own room post (a remote/injected band-mcp calling the REST API as it runs).
+    Narration (thought, tool_call, tool_result, plan) is posted as it arrives;
+    only the assistant's text reply is held until close, because whether to relay
+    it depends on whether the whole turn already posted via a Band tool — if so
+    the text would duplicate the reply already in the room. On a clean close the
+    held text is relayed (unless the turn posted in-room) and the session
+    bookkeeping ``task`` event is posted last.
+    """
+
+    def __init__(
+        self,
+        tools: AgentToolsProtocol,
+        *,
+        mentions: list[dict[str, str]],
+        session_id: str,
+        room_id: str,
+    ) -> None:
+        self._tools = tools
+        self._mentions = mentions
+        self._session_id = session_id
+        self._room_id = room_id
+        self._chunks: list[CollectedChunk] = []
+        self._pending_text: list[str] = []
+
+    async def emit(self, chunk: CollectedChunk) -> None:
+        self._chunks.append(chunk)
+        # A self-reporting tool (band_send_message/band_send_event) posts its own
+        # room output as it runs, so narrating its call would duplicate it.
+        if chunk.metadata.get("self_reporting"):
+            return
+        match chunk.chunk_type:
+            case "text":
+                if chunk.content:
+                    self._pending_text.append(chunk.content)
+            case "thought":
+                await self._tools.send_event(
+                    content=chunk.content,
+                    message_type="thought",
+                    metadata=chunk.metadata,
+                )
+            case "tool_call" | "tool_result":
+                await self._tools.send_event(
+                    content=chunk.content,
+                    message_type=chunk.chunk_type,
+                    metadata=chunk.metadata,
+                )
+            case "plan":
+                await self._tools.send_event(
+                    content=chunk.content,
+                    message_type="task",
+                    metadata=chunk.metadata,
+                )
+
+    async def emit_permission(
+        self,
+        *,
+        tool_name: str,
+        tool_call_id: str,
+        session_id: str,
+        approved: bool,
+        outcome: str,
+    ) -> None:
+        """Post the synthetic permission tool_call/tool_result pair, in place."""
+        metadata = {
+            "permission_request": True,
+            "tool_name": tool_name,
+            "tool_call_id": tool_call_id,
+            "acp_session_id": session_id,
+            "auto_allowed": approved,
+        }
+        await self._tools.send_event(
+            content=f"Permission requested: {tool_name}",
+            message_type="tool_call",
+            metadata=metadata,
+        )
+        await self._tools.send_event(
+            content=f"Permission {outcome}",
+            message_type="tool_result",
+            metadata={**metadata, "permission_outcome": outcome},
+        )
+
+    async def __aenter__(self) -> RoomTurnEmitter:
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
+        # A failed turn is handled by on_message (error event + respawn); post
+        # neither the held text nor the bookkeeping event.
+        if exc_type is not None:
+            return False
+        # Tool-first delivery (matches copilot_sdk / codex): if the turn posted via
+        # a Band messaging tool, relaying its plain text too would duplicate the
+        # reply (and leak the agent's narration of the call).
+        if not ACPClientAdapter._turn_replied_in_room(self._chunks):
+            for text in self._pending_text:
+                await self._tools.send_message(content=text, mentions=self._mentions)
+        await self._tools.send_event(
+            content="ACP client session",
+            message_type="task",
+            metadata={
+                "acp_client_session_id": self._session_id,
+                "acp_client_room_id": self._room_id,
+            },
+        )
+        return False
+
+
 class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
     """Adapter that forwards Band messages to a remote ACP agent.
 
@@ -182,55 +294,33 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
 
         session_id = await self._get_or_create_session(room_id)
         self._runtime.reset_session(session_id)
-        self._runtime.set_permission_handler(
-            session_id,
-            self._make_permission_handler(tools, room_id),
-        )
 
         prompt_text = await self._build_prompt_text(room_id, session_id, msg)
+        sender_name = msg.sender_name or msg.sender_id or "Unknown"
+        mentions = [{"id": msg.sender_id, "name": sender_name}]
 
+        # The emitter posts the turn's events live, in the order the ACP stream
+        # delivers them (see RoomTurnEmitter), so narration stays interleaved with
+        # the permission pair and any in-room tool post. On a clean turn its
+        # __aexit__ relays the held text (if not already posted) and the session
+        # bookkeeping event; on failure it posts nothing and the error is handled
+        # below.
         try:
-            chunks = await self._runtime.prompt(
+            async with RoomTurnEmitter(
+                tools,
+                mentions=mentions,
                 session_id=session_id,
-                prompt_text=prompt_text,
-            )
-            sender_name = msg.sender_name or msg.sender_id or "Unknown"
-            mentions = [{"id": msg.sender_id, "name": sender_name}]
-            # Reply delivery is tool-first with a text fallback, like the other
-            # bridge adapters (copilot_sdk / codex): if the turn already posted
-            # via a Band messaging tool, relaying its plain text too would
-            # duplicate the reply (and leak the agent's narration of the call).
-            replied_in_room = self._turn_replied_in_room(chunks)
-            # Streaming text/thought deltas are coalesced into one chunk per run by
-            # ACPCollectingClient, so one chunk here == one logical message/event.
-            for chunk in chunks:
-                if chunk.metadata.get("self_reporting"):
-                    continue
-                match chunk.chunk_type:
-                    case "text":
-                        if chunk.content and not replied_in_room:
-                            await tools.send_message(
-                                content=chunk.content,
-                                mentions=mentions,
-                            )
-                    case "thought":
-                        await tools.send_event(
-                            content=chunk.content,
-                            message_type="thought",
-                            metadata=chunk.metadata,
-                        )
-                    case "tool_call" | "tool_result":
-                        await tools.send_event(
-                            content=chunk.content,
-                            message_type=chunk.chunk_type,
-                            metadata=chunk.metadata,
-                        )
-                    case "plan":
-                        await tools.send_event(
-                            content=chunk.content,
-                            message_type="task",
-                            metadata=chunk.metadata,
-                        )
+                room_id=room_id,
+            ) as emitter:
+                self._runtime.set_permission_handler(
+                    session_id,
+                    self._make_permission_handler(emitter, room_id),
+                )
+                await self._runtime.prompt(
+                    session_id=session_id,
+                    prompt_text=prompt_text,
+                    on_chunk=emitter.emit,
+                )
         except Exception as e:
             logger.exception("ACP agent error: %s", e)
             await self.stop()
@@ -239,16 +329,6 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
                 message_type="error",
                 metadata={"acp_error": str(e)},
             )
-            return
-
-        await tools.send_event(
-            content="ACP client session",
-            message_type="task",
-            metadata={
-                "acp_client_session_id": session_id,
-                "acp_client_room_id": room_id,
-            },
-        )
 
     @staticmethod
     def _turn_replied_in_room(chunks: list[CollectedChunk]) -> bool:
@@ -286,7 +366,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
 
     def _make_permission_handler(
         self,
-        tools: AgentToolsProtocol,
+        emitter: RoomTurnEmitter,
         room_id: str,
     ) -> PermissionHandler:
         async def handler(
@@ -331,25 +411,12 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             # ordinary tool the real tool_call/tool_result cover it, so emitting the
             # pair too would duplicate the call in the room.
             if is_self_reporting_tool(tool_name) or not approved:
-                permission_metadata = {
-                    "permission_request": True,
-                    "tool_name": tool_name,
-                    "tool_call_id": tool_call_id,
-                    "acp_session_id": session_id,
-                    "auto_allowed": approved,
-                }
-                await tools.send_event(
-                    content=f"Permission requested: {tool_name}",
-                    message_type="tool_call",
-                    metadata=permission_metadata,
-                )
-                await tools.send_event(
-                    content=f"Permission {permission_outcome.value}",
-                    message_type="tool_result",
-                    metadata={
-                        **permission_metadata,
-                        "permission_outcome": permission_outcome.value,
-                    },
+                await emitter.emit_permission(
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    session_id=session_id,
+                    approved=approved,
+                    outcome=permission_outcome.value,
                 )
             return response
 

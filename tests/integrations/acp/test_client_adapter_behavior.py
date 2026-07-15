@@ -279,6 +279,54 @@ async def test_permissioned_band_mcp_turn_has_one_causal_transcript(fake_agent) 
 
 
 @pytest.mark.asyncio
+async def test_turn_events_post_in_causal_order(fake_agent) -> None:
+    """Narration, permission, and the in-room reply keep the order they happened.
+
+    The reply-before-narration bug: a Band messaging tool posts to the room as it
+    runs (mid-turn), and a permission pair posts live too, but narration used to be
+    flushed only after the whole turn — so it landed after the live events instead
+    of where it happened. A turn that thinks, calls an ordinary tool, then posts via
+    band_send_message must render thought → tool call/result → permission pair →
+    room message, in that order (not narration trailing at the end).
+    """
+    fake_agent.will_think("Checking the weather first.").will_call_tool(
+        "tc-weather", "get_weather", raw_input={"city": "SF"}, result="72F"
+    ).will_ask_permission(
+        tool_call_id="tc-msg", title="band_send_message"
+    ).will_call_mcp_tool(
+        "tc-msg",
+        "band_send_message",
+        arguments={
+            "room_id": "room-1",
+            "content": "It's 72F in SF.",
+            "mentions": ["@pat"],
+        },
+    )
+
+    async with acp_adapter(fake_agent, inject_band_tools=True) as session:
+        reply = await session.send("weather in SF?", room="room-1")
+
+    ordering = [
+        (
+            activity.kind,
+            activity.message_type,
+            bool((activity.metadata or {}).get("permission_request")),
+        )
+        for activity in reply.transcript
+    ]
+    assert ordering == [
+        ("event", "thought", False),
+        ("event", "tool_call", False),
+        ("event", "tool_result", False),
+        ("event", "tool_call", True),  # permission requested
+        ("event", "tool_result", True),  # permission approved
+        ("message", None, False),  # the band_send_message post
+        ("event", "task", False),  # session bookkeeping, always last
+    ]
+    assert reply.transcript[-2].content == "It's 72F in SF."
+
+
+@pytest.mark.asyncio
 async def test_two_rooms_get_isolated_sessions(fake_agent) -> None:
     @fake_agent.on_prompt
     async def _reply(agent, session_id: str) -> None:

@@ -6,6 +6,7 @@ import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from acp.helpers import update_agent_message_text
 
 from band.integrations.acp.client_adapter import ACPClientAdapter, _resolve_launcher
 from band.integrations.acp.client_profiles import CursorACPClientProfile
@@ -434,144 +435,6 @@ class TestACPClientAdapterOnMessage:
         assert call_kwargs["session_id"] == "acp-session-123"
 
     @pytest.mark.asyncio
-    async def test_on_message_posts_response(
-        self, adapter_with_mocks: ACPClientAdapter
-    ) -> None:
-        """Should post collected response back to Band room."""
-
-        # Make prompt() populate the per-session buffer (simulating session_update)
-        async def mock_prompt(**kwargs):
-            session_id = kwargs.get("session_id", "acp-session-123")
-            adapter_with_mocks._runtime._client._session_chunks[session_id] = [
-                CollectedChunk(chunk_type="text", content="The weather is sunny.")
-            ]
-
-        adapter_with_mocks._runtime._conn.prompt = AsyncMock(side_effect=mock_prompt)
-
-        tools = FakeAgentTools()
-        msg = make_platform_message("Weather?", room_id="room-123")
-
-        await adapter_with_mocks.on_message(
-            msg,
-            tools,
-            ACPClientSessionState(),
-            None,
-            None,
-            is_session_bootstrap=False,
-            room_id="room-123",
-        )
-
-        # Should have sent message back
-        assert len(tools.messages_sent) > 0
-        assert tools.messages_sent[0]["content"] == "The weather is sunny."
-
-    @pytest.mark.asyncio
-    async def test_on_message_posts_thought_event(
-        self, adapter_with_mocks: ACPClientAdapter
-    ) -> None:
-        """Should post thought chunks as thought events."""
-
-        async def mock_prompt(**kwargs):
-            session_id = kwargs.get("session_id", "acp-session-123")
-            adapter_with_mocks._runtime._client._session_chunks[session_id] = [
-                CollectedChunk(chunk_type="thought", content="Let me think...")
-            ]
-
-        adapter_with_mocks._runtime._conn.prompt = AsyncMock(side_effect=mock_prompt)
-
-        tools = FakeAgentTools()
-        msg = make_platform_message("Question?", room_id="room-123")
-
-        await adapter_with_mocks.on_message(
-            msg,
-            tools,
-            ACPClientSessionState(),
-            None,
-            None,
-            is_session_bootstrap=False,
-            room_id="room-123",
-        )
-
-        thought_events = [
-            e for e in tools.events_sent if e.get("message_type") == "thought"
-        ]
-        assert len(thought_events) == 1
-        assert thought_events[0]["content"] == "Let me think..."
-
-    @pytest.mark.asyncio
-    async def test_on_message_posts_tool_call_event(
-        self, adapter_with_mocks: ACPClientAdapter
-    ) -> None:
-        """Should post tool_call chunks as tool_call events."""
-
-        async def mock_prompt(**kwargs):
-            session_id = kwargs.get("session_id", "acp-session-123")
-            adapter_with_mocks._runtime._client._session_chunks[session_id] = [
-                CollectedChunk(
-                    chunk_type="tool_call",
-                    content="search",
-                    metadata={"tool_call_id": "tc-1"},
-                )
-            ]
-
-        adapter_with_mocks._runtime._conn.prompt = AsyncMock(side_effect=mock_prompt)
-
-        tools = FakeAgentTools()
-        msg = make_platform_message("Find info", room_id="room-123")
-
-        await adapter_with_mocks.on_message(
-            msg,
-            tools,
-            ACPClientSessionState(),
-            None,
-            None,
-            is_session_bootstrap=False,
-            room_id="room-123",
-        )
-
-        tool_events = [
-            e for e in tools.events_sent if e.get("message_type") == "tool_call"
-        ]
-        assert len(tool_events) == 1
-        assert tool_events[0]["metadata"]["tool_call_id"] == "tc-1"
-
-    @pytest.mark.asyncio
-    async def test_on_message_posts_plan_as_task_event(
-        self, adapter_with_mocks: ACPClientAdapter
-    ) -> None:
-        """Should post plan chunks as task events."""
-
-        async def mock_prompt(**kwargs):
-            session_id = kwargs.get("session_id", "acp-session-123")
-            adapter_with_mocks._runtime._client._session_chunks[session_id] = [
-                CollectedChunk(chunk_type="plan", content="Step 1: Do stuff")
-            ]
-
-        adapter_with_mocks._runtime._conn.prompt = AsyncMock(side_effect=mock_prompt)
-
-        tools = FakeAgentTools()
-        msg = make_platform_message("Plan it", room_id="room-123")
-
-        await adapter_with_mocks.on_message(
-            msg,
-            tools,
-            ACPClientSessionState(),
-            None,
-            None,
-            is_session_bootstrap=False,
-            room_id="room-123",
-        )
-
-        task_events = [
-            e
-            for e in tools.events_sent
-            if e.get("message_type") == "task"
-            and "acp_client_session_id" not in e.get("metadata", {})
-        ]
-        assert len(task_events) == 1
-        assert task_events[0]["content"] == "Step 1: Do stuff"
-
-    @pytest.mark.asyncio
     async def test_on_message_emits_task_event(
         self, adapter_with_mocks: ACPClientAdapter
     ) -> None:
@@ -636,9 +499,11 @@ class TestACPClientAdapterOnMessage:
 
         async def prompt_new_session(**kwargs):
             session_id = kwargs["session_id"]
-            adapter_with_mocks._runtime._client._session_chunks[session_id] = [
-                CollectedChunk(chunk_type="text", content="Recovered reply")
-            ]
+            # Stream the reply through the live sink the adapter registers for the
+            # turn (as a real agent would), not a direct buffer poke.
+            await adapter_with_mocks._runtime._client.session_update(
+                session_id, update_agent_message_text("Recovered reply")
+            )
 
         adapter_with_mocks._runtime._conn.prompt = AsyncMock(
             side_effect=prompt_new_session

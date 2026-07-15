@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 ACP_STDIO_LIMIT_BYTES = 16 * 1024 * 1024
 ACP_SESSION_LOAD_TIMEOUT_SECONDS = 5.0
 PermissionHandler = Callable[..., Awaitable[dict[str, object]]]
+ChunkSink = Callable[[CollectedChunk], Awaitable[None]]
 MCPTransportKind = Literal["http", "sse"]
 
 # ACP grants a tool-call permission by *selecting one of the options the agent
@@ -167,9 +168,15 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
         self._permission_handlers: dict[str, PermissionHandler] = {}
         self._self_reporting_call_ids: dict[str, set[str]] = {}
         # Per session, the canonical tool_result chunk for each tool_call_id, so a
-        # stream of tool_call_updates for one call collapses into a single room
-        # event (see _add_tool_result). Reset per turn in reset_session.
+        # call's stream of tool_call_updates folds into one result, finalized once
+        # when the call reaches a terminal status (see _ingest_tool_result). Reset
+        # per turn in reset_session.
         self._result_chunks: dict[str, dict[str, CollectedChunk]] = {}
+        self._emitted_results: dict[str, set[str]] = {}
+        # An open text/thought run being coalesced until the next boundary, and the
+        # per-session live sink that finalized chunks are posted to, in order.
+        self._open_runs: dict[str, CollectedChunk] = {}
+        self._sinks: dict[str, ChunkSink] = {}
 
     async def session_update(
         self, session_id: str, update: object, **kwargs: object
@@ -177,7 +184,7 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
         del kwargs
         chunk = self._chunk_from_update(session_id, update)
         if chunk is not None:
-            self._append_chunk(session_id, chunk)
+            await self._ingest(session_id, chunk)
 
     def _chunk_from_update(
         self, session_id: str, update: object
@@ -269,51 +276,99 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
     # or phrase). tool_call/tool_result/plan are discrete and never merged.
     _COALESCED_CHUNK_TYPES = ("text", "thought")
 
-    def _append_chunk(self, session_id: str, chunk: CollectedChunk) -> None:
-        buffer = self._session_chunks.setdefault(session_id, [])
+    async def _ingest(self, session_id: str, chunk: CollectedChunk) -> None:
+        """Route one parsed chunk through coalescing/collapse to the live sink.
+
+        Text/thought deltas coalesce into an open run, finalized at the next
+        boundary (a different chunk type, or turn end). tool_call and plan are
+        discrete and finalize at once. A tool_result folds its call's frames and
+        finalizes when the call reaches a terminal status. Finalizing a chunk both
+        buffers it (for get_collected_chunks) and posts it to the sink, in order.
+        """
+        if chunk.chunk_type in self._COALESCED_CHUNK_TYPES:
+            open_run = self._open_runs.get(session_id)
+            if open_run is not None and open_run.chunk_type == chunk.chunk_type:
+                open_run.content += chunk.content  # merge the streamed delta
+                return
+            await self._close_open_run(session_id)
+            self._open_runs[session_id] = chunk
+            return
+        await self._close_open_run(session_id)
         if chunk.chunk_type == "tool_result":
-            self._add_tool_result(session_id, buffer, chunk)
-        elif (
-            buffer
-            and chunk.chunk_type in self._COALESCED_CHUNK_TYPES
-            and buffer[-1].chunk_type == chunk.chunk_type
-        ):
-            buffer[-1].content += chunk.content  # merge the streamed delta
+            await self._ingest_tool_result(session_id, chunk)
         else:
-            buffer.append(chunk)
+            await self._finalize(session_id, chunk)
 
-    def _add_tool_result(
-        self, session_id: str, buffer: list[CollectedChunk], chunk: CollectedChunk
-    ) -> None:
-        """Collapse a call's stream of tool_call_update frames into one result.
+    async def _close_open_run(self, session_id: str) -> None:
+        """Finalize the open text/thought run, if any — a boundary was reached."""
+        run = self._open_runs.pop(session_id, None)
+        if run is not None:
+            await self._finalize(session_id, run)
 
-        A tool call reports its result over several updates sharing a
-        ``tool_call_id``; the first is buffered as the call's result and every later
-        frame folds into it, so the room sees one event. A frame with no id (or the
-        first for an id) can't fold into anything and is appended on its own.
+    async def _ingest_tool_result(self, session_id: str, chunk: CollectedChunk) -> None:
+        """Fold a tool_result frame into its call and finalize once, at terminal.
+
+        A call reports its result over several frames sharing a ``tool_call_id``
+        (partial content blocks, then a terminal frame often carrying only the
+        structured ``rawOutput``). They fold into one canonical result, finalized
+        the first time the call reports a terminal status. A frame with no id can't
+        be correlated, so it stands alone.
         """
         call_id = str(chunk.metadata.get("tool_call_id", ""))
-        results = self._result_chunks.setdefault(session_id, {})
-        result = results.get(call_id) if call_id else None
-        if result is None:
-            # First frame for this id, or a frame with no id to correlate: it
-            # starts its own result. Only a real id is remembered, so later
-            # frames can fold into it.
-            buffer.append(chunk)
-            if call_id:
-                results[call_id] = chunk
+        if not call_id:
+            await self._finalize(session_id, chunk)
             return
-        # Fold this frame in: the last *reported* status wins, self-reporting
-        # stays sticky, and the best frame's content survives (see _result_key).
-        # ACP status is optional, so a frame that omits it (status is None) must
-        # not regress a recorded "completed" — leave the stored status untouched.
+        results = self._result_chunks.setdefault(session_id, {})
+        canonical = results.get(call_id)
+        if canonical is None:
+            results[call_id] = chunk
+            canonical = chunk
+        else:
+            self._fold_result(canonical, chunk)
+        emitted = self._emitted_results.setdefault(session_id, set())
+        terminal = canonical.metadata.get("status") in ("completed", "failed")
+        if terminal and call_id not in emitted:
+            emitted.add(call_id)
+            await self._finalize(session_id, canonical)
+
+    def _fold_result(self, canonical: CollectedChunk, chunk: CollectedChunk) -> None:
+        """Fold a later frame into a call's canonical result.
+
+        The last *reported* status wins — ACP status is optional, so a frame that
+        omits it (status is None) must not regress a recorded "completed";
+        self-reporting stays sticky; the more readable/complete content survives
+        (see _result_key).
+        """
         incoming_status = chunk.metadata.get("status")
         if incoming_status is not None:
-            result.metadata["status"] = incoming_status
+            canonical.metadata["status"] = incoming_status
         if chunk.metadata.get("self_reporting"):
-            result.metadata["self_reporting"] = True
-        best = max(result, chunk, key=self._result_key)
-        result.content, result.from_raw = best.content, best.from_raw
+            canonical.metadata["self_reporting"] = True
+        best = max(canonical, chunk, key=self._result_key)
+        canonical.content, canonical.from_raw = best.content, best.from_raw
+
+    async def _finalize(self, session_id: str, chunk: CollectedChunk) -> None:
+        """Buffer a finalized chunk and post it to the session's live sink, if any."""
+        self._session_chunks.setdefault(session_id, []).append(chunk)
+        sink = self._sinks.get(session_id)
+        if sink is not None:
+            await sink(chunk)
+
+    def set_sink(self, session_id: str, sink: ChunkSink | None) -> None:
+        if sink is None:
+            self._sinks.pop(session_id, None)
+        else:
+            self._sinks[session_id] = sink
+
+    async def flush(self, session_id: str) -> None:
+        """Finalize anything still open at turn end: the coalesced run, then any
+        tool result whose call never reported a terminal status."""
+        await self._close_open_run(session_id)
+        emitted = self._emitted_results.setdefault(session_id, set())
+        for call_id, canonical in self._result_chunks.get(session_id, {}).items():
+            if call_id not in emitted:
+                emitted.add(call_id)
+                await self._finalize(session_id, canonical)
 
     @staticmethod
     def _result_key(chunk: CollectedChunk) -> tuple[bool, bool, int]:
@@ -359,6 +414,9 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
         self._permission_handlers.pop(session_id, None)
         self._self_reporting_call_ids.pop(session_id, None)
         self._result_chunks.pop(session_id, None)
+        self._emitted_results.pop(session_id, None)
+        self._open_runs.pop(session_id, None)
+        self._sinks.pop(session_id, None)
 
     def get_collected_text(self, session_id: str | None = None) -> str:
         if session_id is not None:
@@ -396,7 +454,9 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
 
         chunks = await self._profile.ext_notification(method, params)
         if chunks:
-            self._session_chunks.setdefault(session_id, []).extend(chunks)
+            await self._close_open_run(session_id)
+            for chunk in chunks:
+                await self._finalize(session_id, chunk)
 
     @staticmethod
     def _block_text(block: object) -> str:
@@ -569,10 +629,22 @@ class ACPRuntime:
         return response is not None
 
     async def prompt(
-        self, *, session_id: str, prompt_text: str
+        self,
+        *,
+        session_id: str,
+        prompt_text: str,
+        on_chunk: ChunkSink | None = None,
     ) -> list[CollectedChunk]:
         conn = await self.ensure_connection(can_respawn=False)
-        await conn.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+        if on_chunk is not None and self._client is not None:
+            self._client.set_sink(session_id, on_chunk)
+        try:
+            await conn.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+            if self._client is not None:
+                await self._client.flush(session_id)
+        finally:
+            if self._client is not None:
+                self._client.set_sink(session_id, None)
         return self.get_collected_chunks(session_id)
 
     def reset_session(self, session_id: str) -> None:

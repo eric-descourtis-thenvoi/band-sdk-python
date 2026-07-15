@@ -105,6 +105,7 @@ class TestACPCollectingClientCoalescing:
         client = ACPCollectingClient()
         for part in ("The weather ", "is ", "sunny."):
             await client.session_update("s1", self._update("agent_message_chunk", part))
+        await client.flush("s1")  # turn end finalizes the still-open run
 
         chunks = client.get_collected_chunks("s1")
         assert [c.chunk_type for c in chunks] == ["text"]  # one chunk, not three
@@ -119,6 +120,7 @@ class TestACPCollectingClientCoalescing:
         )
         await client.session_update("s1", MagicMock(session_update="tool_call"))
         await client.session_update("s1", self._update("agent_message_chunk", "after"))
+        await client.flush("s1")  # turn end finalizes the trailing text run
 
         kinds = [c.chunk_type for c in client.get_collected_chunks("s1")]
         assert kinds == [
