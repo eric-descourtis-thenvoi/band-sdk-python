@@ -619,6 +619,14 @@ test, where the markdown-docs run actually executes it.
   readable projection of the observable outcome, not raw internals — e.g.
   `assert reply.outline == ["tool_call (permission)", "message", ...]` over a
   hand-rolled comprehension pulling `message_type` out of each event dict.
+- Always seek a single source of truth. A value or closed vocabulary used in more
+  than one place gets one definition — a constant, a `StrEnum`, or a small helper —
+  that every site references; never re-type the same magic literal in a producer and
+  the consumer that reads it (a typo then fails silently). When you touch code that
+  duplicates one, consolidate it. Keep genuinely distinct vocabularies separate,
+  though — don't merge two sets that only happen to share some values today (e.g. the
+  ACP `ChunkType` a chunk carries vs. the platform `message_type` an event is posted
+  under).
 - Comments should describe the code as it is, not narrate what changed between versions.
 
 ## Pre-Commit Checklist

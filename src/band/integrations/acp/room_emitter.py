@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from band.core.protocols import AgentToolsProtocol
-from band.integrations.acp.types import CollectedChunk
+from band.integrations.acp.types import ChunkType, CollectedChunk, ToolStatus
 from band.runtime.tools import is_room_posting_tool
 
 logger = logging.getLogger(__name__)
@@ -27,8 +27,10 @@ def turn_replied_in_room(chunks: list[CollectedChunk]) -> bool:
     for chunk in chunks:
         metadata = chunk.metadata or {}
         call_id = str(metadata.get("tool_call_id", ""))
-        if chunk.chunk_type == "tool_call" and is_room_posting_tool(chunk.content):
-            if metadata.get("status") == "completed":
+        if chunk.chunk_type == ChunkType.TOOL_CALL and is_room_posting_tool(
+            chunk.content
+        ):
+            if metadata.get("status") == ToolStatus.COMPLETED:
                 return True
             # Correlate with a later result only by a real id. An empty id (a
             # missing tool_call_id) would match any other id-less result — e.g. a
@@ -37,9 +39,9 @@ def turn_replied_in_room(chunks: list[CollectedChunk]) -> bool:
             if call_id:
                 posting_call_ids.add(call_id)
         elif (
-            chunk.chunk_type == "tool_result"
+            chunk.chunk_type == ChunkType.TOOL_RESULT
             and call_id in posting_call_ids
-            and metadata.get("status") == "completed"
+            and metadata.get("status") == ToolStatus.COMPLETED
         ):
             return True
     return False
@@ -91,28 +93,28 @@ class RoomTurnEmitter:
         # frame arrives after that post, so it is where we close a permission pair
         # opened for it — placing the outcome after the message the tool produced.
         if chunk.metadata.get("self_reporting"):
-            if chunk.chunk_type == "tool_result":
+            if chunk.chunk_type == ChunkType.TOOL_RESULT:
                 await self._close_permission(
                     str(chunk.metadata.get("tool_call_id", ""))
                 )
             return
         match chunk.chunk_type:
-            case "text":
+            case ChunkType.TEXT:
                 if chunk.content:
                     self._pending_text.append(chunk.content)
-            case "thought":
+            case ChunkType.THOUGHT:
                 await self._tools.send_event(
                     content=chunk.content,
                     message_type="thought",
                     metadata=chunk.metadata,
                 )
-            case "tool_call" | "tool_result":
+            case ChunkType.TOOL_CALL | ChunkType.TOOL_RESULT:
                 await self._tools.send_event(
                     content=chunk.content,
                     message_type=chunk.chunk_type,
                     metadata=chunk.metadata,
                 )
-            case "plan":
+            case ChunkType.PLAN:
                 await self._tools.send_event(
                     content=chunk.content,
                     message_type="task",
