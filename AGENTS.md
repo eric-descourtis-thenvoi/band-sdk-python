@@ -267,7 +267,7 @@ BAND_AGENT_ID=my-agent BAND_API_KEY=key band-acp
 
 ### Reply Delivery (Client Adapter)
 
-Tool-first with a text fallback, matching `copilot_sdk`/`codex`: if the turn posted via a Band messaging tool, the agent's plain text is **not** also relayed; otherwise the text is relayed as the reply. Which tools count is defined once in `is_room_posting_tool()` / `ROOM_POSTING_TOOL_NAMES` (`src/band/runtime/tools.py`): the SDK's `band_send_message` plus the standalone band-mcp server's `create_agent_chat_message`. The siblings flip a flag when they execute the tool in-process; the ACP adapter instead reads the ACP tool-call stream (`tool_call` title + `completed` status), because its tools may execute out-of-process (remote band-mcp).
+Tool-first with a text fallback, matching `copilot_sdk`/`codex`: if the turn posted via a Band messaging tool, the agent's plain text is **not** also relayed; otherwise the text is relayed as the reply. Which tools count is defined once in `is_room_posting_tool()` / `ROOM_POSTING_TOOL_NAMES` (`src/band/runtime/tools.py`): the SDK's `band_send_message` (also what band-mcp 1.4.0+ advertises, since its registrar reuses the SDK tool definitions) plus the legacy `create_agent_chat_message` spelling from band-mcp ≤1.3. The siblings flip a flag when they execute the tool in-process; the ACP adapter instead reads the ACP tool-call stream (`tool_call` title + `completed` status), because its tools may execute out-of-process (remote band-mcp).
 
 ### Optional Dependency
 
