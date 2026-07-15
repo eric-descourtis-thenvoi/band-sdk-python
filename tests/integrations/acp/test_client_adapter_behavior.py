@@ -142,6 +142,26 @@ async def test_streamed_tool_result_updates_collapse_into_one_event(fake_agent) 
 
 
 @pytest.mark.asyncio
+async def test_trailing_statusless_update_keeps_room_post_detected(fake_agent) -> None:
+    """A trailing status-less frame must not un-suppress the text fallback.
+
+    The agent posts via ``band_send_message`` (reported ``completed``) and then
+    emits one more ``tool_call_update`` with no status. Detection of the
+    room-posting call rides that ``completed`` status; if a later frame regresses
+    it to ``None`` the turn looks unposted and the agent's narration is relayed —
+    duplicating the reply already in the room.
+    """
+    fake_agent.will_call_tool_then_trailing_update(
+        "tc-1", "band_send_message", result='{"id": "msg-1"}'
+    ).will_say("I've posted the answer to the room.")
+
+    async with acp_adapter(fake_agent) as session:
+        reply = await session.send("question?", room="room-1")
+
+    assert reply.texts == []  # text suppressed: the room post was still detected
+
+
+@pytest.mark.asyncio
 async def test_plan_relayed_as_task_event(fake_agent) -> None:
     fake_agent.will_plan("step one", "step two")
     async with acp_adapter(fake_agent) as session:
@@ -152,15 +172,20 @@ async def test_plan_relayed_as_task_event(fake_agent) -> None:
 
 
 @pytest.mark.asyncio
-async def test_permission_request_auto_approved(fake_agent) -> None:
-    # The agent asks the client to approve a tool call mid-turn, then replies.
-    fake_agent.will_ask_permission(tool_call_id="tc-1").will_say("done")
+async def test_ordinary_tool_permission_granted_without_a_bubble(fake_agent) -> None:
+    """An ordinary tool's permission is auto-granted silently — no permission pair.
+
+    The tool's own tool_call/tool_result already show the call, so posting a
+    permission pair too would duplicate it in the room.
+    """
+    fake_agent.will_ask_permission(
+        tool_call_id="tc-1", title="band_lookup_peers"
+    ).will_say("done")
     async with acp_adapter(fake_agent) as session:
         reply = await session.send("do the thing")
 
-    assert fake_agent.approved is True  # the round-trip granted the allow option
-    assert len(reply.permissions) == 1
-    assert reply.permissions[0]["metadata"]["auto_allowed"] is True
+    assert fake_agent.approved is True  # the round-trip still granted the allow option
+    assert reply.permissions == []  # no duplicate permission pair for an ordinary tool
     assert "done" in reply.texts  # the turn proceeded after approval
 
 

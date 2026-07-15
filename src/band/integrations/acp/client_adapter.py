@@ -39,6 +39,7 @@ from band.runtime.custom_tools import CustomToolDef
 from band.runtime.mcp_server import LocalMCPServer
 from band.runtime.tools import (
     is_room_posting_tool,
+    is_self_reporting_tool,
     iter_tool_definitions,
 )
 
@@ -315,34 +316,41 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
                 option_id,
             )
 
-            permission_metadata = {
-                "permission_request": True,
-                "tool_name": tool_name,
-                "tool_call_id": tool_call_id,
-                "acp_session_id": session_id,
-                "auto_allowed": option_id is not None,
-            }
-            await tools.send_event(
-                content=f"Permission requested: {tool_name}",
-                message_type="tool_call",
-                metadata=permission_metadata,
-            )
-
-            if option_id is None:
-                permission_outcome = PermissionOutcome.CANCELLED
-                response = cancel_permission()
-            else:
+            approved = option_id is not None
+            if approved:
                 permission_outcome = PermissionOutcome.APPROVED
                 response = allow_permission(option_id)
+            else:
+                permission_outcome = PermissionOutcome.CANCELLED
+                response = cancel_permission()
 
-            await tools.send_event(
-                content=f"Permission {permission_outcome.value}",
-                message_type="tool_result",
-                metadata={
-                    **permission_metadata,
-                    "permission_outcome": permission_outcome.value,
-                },
-            )
+            # Surface the permission as a tool_call/tool_result pair only when the
+            # call's own execution events won't already show it: a self-reporting
+            # tool (band_send_message/band_send_event — its execution events are
+            # suppressed) or a denied request (the tool never runs). For an approved
+            # ordinary tool the real tool_call/tool_result cover it, so emitting the
+            # pair too would duplicate the call in the room.
+            if is_self_reporting_tool(tool_name) or not approved:
+                permission_metadata = {
+                    "permission_request": True,
+                    "tool_name": tool_name,
+                    "tool_call_id": tool_call_id,
+                    "acp_session_id": session_id,
+                    "auto_allowed": approved,
+                }
+                await tools.send_event(
+                    content=f"Permission requested: {tool_name}",
+                    message_type="tool_call",
+                    metadata=permission_metadata,
+                )
+                await tools.send_event(
+                    content=f"Permission {permission_outcome.value}",
+                    message_type="tool_result",
+                    metadata={
+                        **permission_metadata,
+                        "permission_outcome": permission_outcome.value,
+                    },
+                )
             return response
 
         return handler

@@ -303,11 +303,13 @@ class ACPCollectingClient(Client):  # type: ignore[misc]  # ACP Client has optio
             if call_id:
                 results[call_id] = chunk
             return
-        # Fold this frame in: the last status seen wins, self-reporting stays
-        # sticky, and the best frame's content survives (see _result_key).
-        result.metadata["status"] = chunk.metadata.get(
-            "status", result.metadata.get("status")
-        )
+        # Fold this frame in: the last *reported* status wins, self-reporting
+        # stays sticky, and the best frame's content survives (see _result_key).
+        # ACP status is optional, so a frame that omits it (status is None) must
+        # not regress a recorded "completed" — leave the stored status untouched.
+        incoming_status = chunk.metadata.get("status")
+        if incoming_status is not None:
+            result.metadata["status"] = incoming_status
         if chunk.metadata.get("self_reporting"):
             result.metadata["self_reporting"] = True
         best = max(result, chunk, key=self._result_key)

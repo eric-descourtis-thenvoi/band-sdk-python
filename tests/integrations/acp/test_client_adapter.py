@@ -753,10 +753,15 @@ class TestACPClientAdapterPermissionHandler:
         assert len(adapter_with_mocks._runtime._client._permission_handlers) > 0
 
     @pytest.mark.asyncio
-    async def test_permission_handler_posts_paired_events(
+    async def test_permission_handler_posts_paired_events_for_self_reporting_tool(
         self, adapter_with_mocks: ACPClientAdapter
     ) -> None:
-        """Should render an approved permission request as a matched event pair."""
+        """An approved self-reporting tool renders as a matched event pair.
+
+        Its execution events are suppressed (the tool posts its own room output),
+        so the permission pair is the only record that the call happened — unlike
+        an ordinary tool, whose real tool_call/tool_result already show it.
+        """
         tools = FakeAgentTools()
         msg = make_platform_message("Hello", room_id="room-123")
 
@@ -764,7 +769,7 @@ class TestACPClientAdapterPermissionHandler:
         async def mock_prompt(**kwargs):
             # Trigger the permission handler directly
             tool_call = MagicMock()
-            tool_call.title = "write_file"
+            tool_call.title = "band_send_message"
             tool_call.tool_call_id = "tc-perm-1"
 
             result = await adapter_with_mocks._runtime._client.request_permission(
@@ -804,10 +809,58 @@ class TestACPClientAdapterPermissionHandler:
         assert all(
             event["metadata"]["tool_call_id"] == "tc-perm-1" for event in perm_events
         )
-        assert perm_events[0]["metadata"]["tool_name"] == "write_file"
+        assert perm_events[0]["metadata"]["tool_name"] == "band_send_message"
         assert perm_events[0]["metadata"]["auto_allowed"] is True
         assert perm_events[1]["content"] == "Permission approved"
         assert perm_events[1]["metadata"]["permission_outcome"] == "approved"
+
+    @pytest.mark.asyncio
+    async def test_permission_handler_skips_pair_for_approved_ordinary_tool(
+        self, adapter_with_mocks: ACPClientAdapter
+    ) -> None:
+        """An approved ordinary tool grants without posting a permission pair.
+
+        The tool's own tool_call/tool_result already show the call, so a pair
+        would duplicate it in the room. The grant is still returned to the agent.
+        """
+        tools = FakeAgentTools()
+        msg = make_platform_message("Hello", room_id="room-123")
+
+        async def mock_prompt(**kwargs):
+            tool_call = MagicMock()
+            tool_call.title = "write_file"
+            tool_call.tool_call_id = "tc-perm-1"
+
+            result = await adapter_with_mocks._runtime._client.request_permission(
+                options=[
+                    {"optionId": "allow-once", "name": "Allow", "kind": "allow_once"}
+                ],
+                session_id="acp-session-123",
+                tool_call=tool_call,
+            )
+            # The grant is still returned even though no pair is posted.
+            assert result == {
+                "outcome": {"outcome": "selected", "optionId": "allow-once"}
+            }
+
+        adapter_with_mocks._runtime._conn.prompt = AsyncMock(side_effect=mock_prompt)
+
+        await adapter_with_mocks.on_message(
+            msg,
+            tools,
+            ACPClientSessionState(),
+            None,
+            None,
+            is_session_bootstrap=False,
+            room_id="room-123",
+        )
+
+        perm_events = [
+            e
+            for e in tools.events_sent
+            if e.get("metadata", {}).get("permission_request")
+        ]
+        assert perm_events == []
 
     @pytest.mark.asyncio
     async def test_permission_handler_selects_allow_option(

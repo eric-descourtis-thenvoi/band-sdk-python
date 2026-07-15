@@ -229,6 +229,32 @@ class FakeACPAgent:
         self._script.append(_action)
         return self
 
+    def will_call_tool_then_trailing_update(
+        self,
+        tool_call_id: str,
+        title: str,
+        *,
+        result: Any,
+    ) -> FakeACPAgent:
+        """A call that reports ``completed``, then sends a later update with no status.
+
+        ACP ``status`` is optional, so an agent may emit a trailing
+        ``tool_call_update`` (e.g. a bookkeeping frame) that omits it after the
+        terminal ``completed`` frame. The bridge must keep the recorded
+        ``completed`` — a "last status wins" fold would regress it to ``None``.
+        """
+
+        async def _action(a: FakeACPAgent, sid: str) -> None:
+            await a.emit(sid, start_tool_call(tool_call_id, title))
+            await a.emit(
+                sid,
+                update_tool_call(tool_call_id, raw_output=result, status="completed"),
+            )
+            await a.emit(sid, update_tool_call(tool_call_id, raw_output=result))
+
+        self._script.append(_action)
+        return self
+
     def will_stream_tool_result(
         self,
         tool_call_id: str,
