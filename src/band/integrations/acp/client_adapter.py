@@ -74,13 +74,19 @@ class RoomTurnEmitter:
 
     A turn's events arrive as a live stream — ``emit`` is called per finalized
     chunk — so they interleave correctly with the two things that already post
-    mid-turn: a permission pair (``emit_permission``) and a Band messaging tool's
-    own room post (a remote/injected band-mcp calling the REST API as it runs).
-    Narration (thought, tool_call, tool_result, plan) is posted as it arrives;
-    only the assistant's text reply is held until close, because whether to relay
-    it depends on whether the whole turn already posted via a Band tool — if so
-    the text would duplicate the reply already in the room. On a clean close the
-    held text is relayed (unless the turn posted in-room) and the session
+    mid-turn: a permission request (``open_permission``) and a Band messaging
+    tool's own room post (a remote/injected band-mcp calling the REST API as it
+    runs). Narration (thought, tool_call, tool_result, plan) is posted as it
+    arrives; the assistant's text reply is held until close, because whether to
+    relay it depends on whether the whole turn already posted via a Band tool — if
+    so the text would duplicate the reply already in the room.
+
+    A self-reporting tool's permission renders as a pair straddling the message it
+    posts: ``open_permission`` posts "Permission requested" up front and holds the
+    outcome, which is posted once the tool completes (its result frame arrives
+    after the message). So the room reads ``tool_call -> message -> tool_result``.
+    On a clean close any still-open permission is closed (never left half-open),
+    the held text is relayed (unless already posted in-room), and the session
     bookkeeping ``task`` event is posted last.
     """
 
@@ -98,12 +104,21 @@ class RoomTurnEmitter:
         self._room_id = room_id
         self._chunks: list[CollectedChunk] = []
         self._pending_text: list[str] = []
+        # tool_call_id -> the held outcome metadata for an approved permission,
+        # posted as the "result" half once the tool's own result frame arrives.
+        self._pending_permissions: dict[str, dict[str, object]] = {}
 
     async def emit(self, chunk: CollectedChunk) -> None:
         self._chunks.append(chunk)
         # A self-reporting tool (band_send_message/band_send_event) posts its own
-        # room output as it runs, so narrating its call would duplicate it.
+        # room output as it runs, so we don't narrate its call/result. Its result
+        # frame arrives after that post, so it is where we close a permission pair
+        # opened for it — placing the outcome after the message the tool produced.
         if chunk.metadata.get("self_reporting"):
+            if chunk.chunk_type == "tool_result":
+                await self._close_permission(
+                    str(chunk.metadata.get("tool_call_id", ""))
+                )
             return
         match chunk.chunk_type:
             case "text":
@@ -127,8 +142,13 @@ class RoomTurnEmitter:
                     message_type="task",
                     metadata=chunk.metadata,
                 )
+            case _:
+                logger.warning(
+                    "Unhandled ACP chunk type %r; not posting to the room",
+                    chunk.chunk_type,
+                )
 
-    async def emit_permission(
+    async def open_permission(
         self,
         *,
         tool_name: str,
@@ -137,8 +157,14 @@ class RoomTurnEmitter:
         approved: bool,
         outcome: str,
     ) -> None:
-        """Post the synthetic permission tool_call/tool_result pair, in place."""
-        metadata = {
+        """Post "Permission requested"; hold an approved outcome until completion.
+
+        An approved request's outcome is posted when the tool's result arrives
+        (after the message it posted) — see ``emit``/``__aexit__`` — so the room
+        reads call -> message -> result. A denied request never runs the tool, so
+        its outcome is posted immediately (there is nothing to wait for).
+        """
+        metadata: dict[str, object] = {
             "permission_request": True,
             "tool_name": tool_name,
             "tool_call_id": tool_call_id,
@@ -150,10 +176,22 @@ class RoomTurnEmitter:
             message_type="tool_call",
             metadata=metadata,
         )
+        outcome_metadata = {**metadata, "permission_outcome": outcome}
+        if approved:
+            self._pending_permissions[tool_call_id] = outcome_metadata
+        else:
+            await self._post_permission_outcome(outcome_metadata)
+
+    async def _close_permission(self, tool_call_id: str) -> None:
+        outcome_metadata = self._pending_permissions.pop(tool_call_id, None)
+        if outcome_metadata is not None:
+            await self._post_permission_outcome(outcome_metadata)
+
+    async def _post_permission_outcome(self, metadata: dict[str, object]) -> None:
         await self._tools.send_event(
-            content=f"Permission {outcome}",
+            content=f"Permission {metadata['permission_outcome']}",
             message_type="tool_result",
-            metadata={**metadata, "permission_outcome": outcome},
+            metadata=metadata,
         )
 
     async def __aenter__(self) -> RoomTurnEmitter:
@@ -164,6 +202,10 @@ class RoomTurnEmitter:
         # neither the held text nor the bookkeeping event.
         if exc_type is not None:
             return False
+        # Close any permission whose tool produced no result frame, so a
+        # "requested" is never left without its outcome.
+        for tool_call_id in list(self._pending_permissions):
+            await self._close_permission(tool_call_id)
         # Tool-first delivery (matches copilot_sdk / codex): if the turn posted via
         # a Band messaging tool, relaying its plain text too would duplicate the
         # reply (and leak the agent's narration of the call).
@@ -411,7 +453,7 @@ class ACPClientAdapter(SimpleAdapter[ACPClientSessionState]):
             # ordinary tool the real tool_call/tool_result cover it, so emitting the
             # pair too would duplicate the call in the room.
             if is_self_reporting_tool(tool_name) or not approved:
-                await emitter.emit_permission(
+                await emitter.open_permission(
                     tool_name=tool_name,
                     tool_call_id=tool_call_id,
                     session_id=session_id,

@@ -75,6 +75,18 @@ class RoomActivity:
     message_type: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def label(self) -> str:
+        """A compact, human-readable tag for asserting transcript shape/order.
+
+        e.g. ``"message"``, ``"thought"``, ``"tool_call"``, ``"task"``, and
+        ``"tool_call (permission)"`` for a synthetic permission event.
+        """
+        if self.kind == "message":
+            return "message"
+        suffix = " (permission)" if self.metadata.get("permission_request") else ""
+        return f"{self.message_type}{suffix}"
+
 
 class TranscriptTools(FakeAgentTools):
     """Fake tools that retain the complete order of room writes."""
@@ -450,6 +462,16 @@ class Reply:
     messages: list[dict[str, Any]] = field(default_factory=list)
     events: list[dict[str, Any]] = field(default_factory=list)
     transcript: list[RoomActivity] = field(default_factory=list)
+
+    @property
+    def outline(self) -> list[str]:
+        """The room writes as ordered, human-readable labels (see RoomActivity.label).
+
+        Lets a test assert the shape and order of a turn — e.g.
+        ``["tool_call (permission)", "message", "tool_result (permission)", "task"]``
+        — without index and metadata bookkeeping.
+        """
+        return [activity.label for activity in self.transcript]
 
     def _events_of(self, message_type: str) -> list[dict[str, Any]]:
         return [e for e in self.events if e.get("message_type") == message_type]

@@ -205,13 +205,8 @@ async def test_band_mcp_reply_is_not_replayed_as_acp_tool_events(fake_agent) -> 
     async with acp_adapter(fake_agent, inject_band_tools=True) as session:
         reply = await session.send("send the reply", room="room-1")
 
-    assert [
-        (activity.kind, activity.message_type) for activity in reply.transcript
-    ] == [
-        ("message", None),
-        ("event", "task"),
-    ]
-    assert reply.transcript[0].content == "Reply from the agent"
+    assert reply.outline == ["message", "task"]
+    assert reply.texts == ["Reply from the agent"]
     assert reply.tool_calls == []
     assert reply.tool_results == []
 
@@ -232,12 +227,7 @@ async def test_band_mcp_event_is_not_replayed_as_acp_tool_events(fake_agent) -> 
     async with acp_adapter(fake_agent, inject_band_tools=True) as session:
         reply = await session.send("do the work", room="room-1")
 
-    assert [
-        (activity.kind, activity.message_type) for activity in reply.transcript
-    ] == [
-        ("event", "thought"),
-        ("event", "task"),
-    ]
+    assert reply.outline == ["thought", "task"]
     assert reply.thoughts == ["Working on it"]
     assert reply.tool_calls == []
     assert reply.tool_results == []
@@ -262,20 +252,21 @@ async def test_permissioned_band_mcp_turn_has_one_causal_transcript(fake_agent) 
     async with acp_adapter(fake_agent, inject_band_tools=True) as session:
         reply = await session.send("send the reply", room="room-1")
 
-    assert [
-        (activity.kind, activity.message_type) for activity in reply.transcript
-    ] == [
-        ("event", "tool_call"),
-        ("event", "tool_result"),
-        ("message", None),
-        ("event", "task"),
+    # The permission pair straddles the message the tool posted: requested -> the
+    # reply -> approved (the outcome lands once the tool completes).
+    assert reply.outline == [
+        "tool_call (permission)",
+        "message",
+        "tool_result (permission)",
+        "task",
     ]
-    assert reply.transcript[0].metadata["permission_request"] is True
-    assert reply.transcript[0].metadata["tool_call_id"] == "tc-message"
-    assert reply.transcript[1].metadata["permission_request"] is True
-    assert reply.transcript[1].metadata["permission_outcome"] == "approved"
-    assert reply.transcript[1].metadata["tool_call_id"] == "tc-message"
-    assert reply.transcript[2].content == "Reply from the agent"
+    requested, message, approved, _task = reply.transcript
+    assert requested.metadata["permission_request"] is True
+    assert requested.metadata["tool_call_id"] == "tc-message"
+    assert message.content == "Reply from the agent"
+    assert approved.metadata["permission_request"] is True
+    assert approved.metadata["permission_outcome"] == "approved"
+    assert approved.metadata["tool_call_id"] == "tc-message"
 
 
 @pytest.mark.asyncio
@@ -283,11 +274,12 @@ async def test_turn_events_post_in_causal_order(fake_agent) -> None:
     """Narration, permission, and the in-room reply keep the order they happened.
 
     The reply-before-narration bug: a Band messaging tool posts to the room as it
-    runs (mid-turn), and a permission pair posts live too, but narration used to be
+    runs (mid-turn), and a permission event posts live too, but narration used to be
     flushed only after the whole turn — so it landed after the live events instead
     of where it happened. A turn that thinks, calls an ordinary tool, then posts via
-    band_send_message must render thought → tool call/result → permission pair →
-    room message, in that order (not narration trailing at the end).
+    band_send_message must render thought → tool call/result → permission requested
+    → room message → permission approved → task, in that order (narration is not
+    trailing at the end, and the permission pair straddles the message it posted).
     """
     fake_agent.will_think("Checking the weather first.").will_call_tool(
         "tc-weather", "get_weather", raw_input={"city": "SF"}, result="72F"
@@ -306,24 +298,16 @@ async def test_turn_events_post_in_causal_order(fake_agent) -> None:
     async with acp_adapter(fake_agent, inject_band_tools=True) as session:
         reply = await session.send("weather in SF?", room="room-1")
 
-    ordering = [
-        (
-            activity.kind,
-            activity.message_type,
-            bool((activity.metadata or {}).get("permission_request")),
-        )
-        for activity in reply.transcript
+    assert reply.outline == [
+        "thought",
+        "tool_call",  # the ordinary get_weather tool
+        "tool_result",
+        "tool_call (permission)",  # asked before posting the reply
+        "message",  # the band_send_message post
+        "tool_result (permission)",  # outcome lands after the message
+        "task",  # session bookkeeping, always last
     ]
-    assert ordering == [
-        ("event", "thought", False),
-        ("event", "tool_call", False),
-        ("event", "tool_result", False),
-        ("event", "tool_call", True),  # permission requested
-        ("event", "tool_result", True),  # permission approved
-        ("message", None, False),  # the band_send_message post
-        ("event", "task", False),  # session bookkeeping, always last
-    ]
-    assert reply.transcript[-2].content == "It's 72F in SF."
+    assert reply.texts == ["It's 72F in SF."]
 
 
 @pytest.mark.asyncio
