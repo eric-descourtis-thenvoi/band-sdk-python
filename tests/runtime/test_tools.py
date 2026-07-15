@@ -553,7 +553,7 @@ class TestAgentToolsSendEvent:
         assert call_args.kwargs["event"].content == content
 
     async def test_send_event_truncates_oversized_content(self, mock_rest_client):
-        """send_event() should cap oversized content instead of sending it verbatim."""
+        """send_event() caps oversized content, keeping both its head and tail."""
         tools = AgentTools("room-123", mock_rest_client)
         content = "HEAD" * 10000 + "TAIL" * 10000
 
@@ -562,8 +562,9 @@ class TestAgentToolsSendEvent:
         call_args = mock_rest_client.agent_api_events.create_agent_chat_event.call_args
         sent_content = call_args.kwargs["event"].content
         assert len(sent_content) == 16384
-        assert sent_content.startswith("HEAD")
-        assert sent_content.endswith("[truncated]")
+        assert sent_content.startswith("HEAD")  # head is retained
+        assert sent_content.endswith("TAIL")  # and the tail isn't dropped
+        assert "[truncated]" in sent_content  # with a marker between them
 
     async def test_send_event_substitutes_placeholder_for_blank_content(
         self, mock_rest_client

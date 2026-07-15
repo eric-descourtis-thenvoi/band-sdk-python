@@ -49,22 +49,26 @@ logger = logging.getLogger(__name__)
 # representation (a terminal- or diff-only ACP tool_call_update) — so guard
 # both ends defensively rather than letting the send fail.
 _EVENT_CONTENT_MAX_LENGTH = 16384
-_EVENT_TRUNCATION_MARKER = "... [truncated]"
+_EVENT_TRUNCATION_MARKER = "... [truncated] ..."
 _EVENT_EMPTY_CONTENT_PLACEHOLDER = "(no content)"
 
 
 def _truncate_event_content(content: str) -> str:
-    """Cut *content* down to ``_EVENT_CONTENT_MAX_LENGTH`` chars.
+    """Cap *content* at ``_EVENT_CONTENT_MAX_LENGTH`` chars, keeping its head
+    and tail around a marker.
 
-    A no-op when *content* is already within the limit, so callers can run it
-    unconditionally rather than checking the length themselves first.
+    Both ends are preserved because the tail is often the informative part of a
+    truncated payload — the final lines of a raw error dump, or a trailing
+    status — which a head-only cut would silently drop. A no-op when *content*
+    is already within the limit, so callers can run it unconditionally rather
+    than checking the length themselves first.
     """
     if len(content) <= _EVENT_CONTENT_MAX_LENGTH:
         return content
-    return (
-        content[: _EVENT_CONTENT_MAX_LENGTH - len(_EVENT_TRUNCATION_MARKER)]
-        + _EVENT_TRUNCATION_MARKER
-    )
+    budget = _EVENT_CONTENT_MAX_LENGTH - len(_EVENT_TRUNCATION_MARKER)
+    head_len = budget // 2
+    tail_len = budget - head_len
+    return content[:head_len] + _EVENT_TRUNCATION_MARKER + content[-tail_len:]
 
 
 def _normalize_handle(value: str) -> str:
