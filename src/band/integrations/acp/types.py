@@ -31,7 +31,7 @@ class CollectedChunk:
         from_raw: For tool_result chunks, True when ``content`` is a stringified
             ``rawOutput`` fallback rather than readable content-block text. Lets
             the collapse of repeated tool_call_updates prefer the readable frame
-            (see ``ACPCollectingClient._merge_tool_result``); ignored otherwise.
+            (see ``ACPCollectingClient._fold_result``); ignored otherwise.
     """
 
     chunk_type: str
