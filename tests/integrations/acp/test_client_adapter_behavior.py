@@ -41,26 +41,35 @@ async def test_streamed_text_deltas_become_one_message(fake_agent) -> None:
 
 
 @pytest.mark.asyncio
-async def test_text_suppressed_when_turn_posted_via_band_tool(fake_agent) -> None:
-    # Tool-first delivery (matches copilot_sdk / codex): the agent posted its reply
-    # with a Band messaging tool, so relaying its plain text too would put the
-    # answer in the room twice (and leak the agent's narration of the call).
+async def test_band_tool_call_suppresses_text_fallback(fake_agent) -> None:
+    # Detection-only: the ACP stream *reports* a completed band_send_message call,
+    # but the fake doesn't actually post — will_call_tool only emits the frames — so
+    # this pins the suppression decision (tool-first delivery, matching copilot_sdk /
+    # codex), not the post. The end-to-end "exactly one visible reply" outcome, where
+    # a real band-mcp tool posts, is covered by
+    # test_band_mcp_reply_is_not_replayed_as_acp_tool_events (inject_band_tools=True).
     fake_agent.will_say("Posting the answer to the room now.").will_call_tool(
         "tc-1", "band_send_message", result='{"id": "msg-1"}'
     )
     async with acp_adapter(fake_agent) as session:
         reply = await session.send("question?")
 
+    # Fallback text suppressed and the self-reporting call not narrated, so the only
+    # room write is the bookkeeping task event.
     assert reply.texts == []
-    assert reply.tool_calls == []
-    assert reply.tool_results == []
+    assert reply.outline == ["task"]
 
 
 @pytest.mark.asyncio
-async def test_text_suppressed_for_prefixed_remote_band_mcp_tool(fake_agent) -> None:
-    # A remote band-mcp server posts out-of-process, so the SDK never executes the
-    # tool itself; detection reads the ACP tool-call stream, where MCP clients may
-    # prefix the server name onto the tool name.
+async def test_prefixed_legacy_band_tool_call_suppresses_text_fallback(
+    fake_agent,
+) -> None:
+    # Detection-only, and necessarily so: a remote band-mcp posts out-of-process, so
+    # the SDK never executes the tool — detection reads the ACP tool-call stream,
+    # where an MCP client prefixes the server name onto the (legacy) tool name. The
+    # in-process LocalMCPServer advertises the SDK-native names, so this prefixed
+    # `band-create_agent_chat_message` spelling has no real-post equivalent; this
+    # test pins that is_room_posting_tool still matches it.
     fake_agent.will_call_tool(
         "tc-1", "band-create_agent_chat_message", result='{"id": "msg-1"}'
     ).will_say("Done — posted the answer.")
@@ -68,8 +77,7 @@ async def test_text_suppressed_for_prefixed_remote_band_mcp_tool(fake_agent) -> 
         reply = await session.send("question?")
 
     assert reply.texts == []
-    assert reply.tool_calls == []
-    assert reply.tool_results == []
+    assert reply.outline == ["task"]
 
 
 @pytest.mark.asyncio
