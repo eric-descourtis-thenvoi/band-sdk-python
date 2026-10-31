@@ -25,6 +25,12 @@ class TransportError(Exception):
     pass
 
 
+class RoomScopeUnavailable(TransportError):
+    """The native room authority definitively refused this participant's scope."""
+
+    reason = "scope_unavailable"
+
+
 class EngineCompileError(TransportError):
     """A safe compiler diagnostic, never raw engine stderr or configuration."""
 

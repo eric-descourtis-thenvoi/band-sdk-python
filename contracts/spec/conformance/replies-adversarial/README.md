@@ -8,7 +8,7 @@ Nadia (site leak gate), and Ada (landing handoff).
 
 | Requested item | Acceptance criterion | Disposition |
 |---|---|---|
-| Portable evidence | Given historical command logs, when normalized, then checkout paths are repo-relative and other home paths use `~/`; results, timestamps, hashes, and exits stay unchanged. | As expected: the three validation JSONs regenerated with path-only substitutions, checked against the parent objects. |
+| Portable evidence | Given historical command logs, when normalized, then checkout paths are repo-relative and other home paths use `<HOME>/`; results, timestamps, hashes, and exits stay unchanged. | As expected: the three validation JSONs regenerated with path-only substitutions, checked against the parent objects. |
 | Generator prevention | Given nested evidence or a harness error, when serialized by the runner, then paths use the same portable representation. | As expected: shared evidence serializer and `--normalize-evidence`; three regression checks observed RED then GREEN. |
 | Both multi-ref positive controls | Given each ref field is explicitly matched except the one eligible for inference, when compiled, then compilation succeeds without weakening `unmatched_reference`. | As expected: both `previous` fields bound; native and portable sources regenerated. Only these two of 48 vectors changed. |
 | Requested d3d8df5 run | Given Kenji's pinned parser and the gate's Omar runtime, when all checks run, then all 53 pass, including the old-reader checks. | As expected in the isolated integration below: 51/53 RED → 53/53 GREEN, actual exits 1 → 0. The parser-only head instead fails at its missing wait-renewal runtime; that failure is retained separately. |

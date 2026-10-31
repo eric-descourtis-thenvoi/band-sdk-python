@@ -78,7 +78,7 @@ OpenAI's skill documentation describes initial discovery from the name, descript
 | Prototype `.band` contracts | Explicit declarations and message rules | No dedicated discovery summary or bounded header reader. |
 | Agent2Agent cards | Discover an agent and its advertised capabilities | A capability description does not define this multi-party state machine. |
 
-The local samples include creative reframing (`~/.agents/skills/creative-reframing/SKILL.md:1`, historical external source), skill creation (`~/.codex/skills/.system/skill-creator/SKILL.md:1`, historical external source), and protocol participation (`band-protocols:skills/protocol-participant/SKILL.md:1`, historical external source). Their common pattern is useful even though their bodies serve different purposes.
+The local samples include creative reframing (`<HOME>/.agents/skills/creative-reframing/SKILL.md:1`, historical external source), skill creation (`<HOME>/.codex/skills/.system/skill-creator/SKILL.md:1`, historical external source), and protocol participation (`band-protocols:skills/protocol-participant/SKILL.md:1`, historical external source). Their common pattern is useful even though their bodies serve different purposes.
 
 The proposed design should distinguish three questions: what cooperation pattern is available, which agents can participate, and which skills a room permits. One description cannot answer all three reliably.
 

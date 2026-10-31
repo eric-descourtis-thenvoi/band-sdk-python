@@ -769,7 +769,7 @@ defmodule ContractLab.Compiler do
     )
 
     doc =
-      case Code.string_to_quoted(literal <> "\n", existing_atoms_only: true) do
+      case Code.string_to_quoted(literal <> "\n", existing_atoms_only: true, emit_warnings: false) do
         {:ok, value} when is_binary(value) -> value
         _ -> fail(:documentation, line)
       end
@@ -1290,7 +1290,7 @@ defmodule ContractLab.Compiler do
         field_type = Map.put(field_type, :meta, m)
 
         ensure(
-          category != :participant_types or field_type.kind != :ref,
+          category != :participant_types or not references_message?(field_type),
           :type,
           line,
           "Participant attributes cannot reference messages that do not exist at creation"
@@ -1514,10 +1514,15 @@ defmodule ContractLab.Compiler do
   end
 
   defp field_type(text, line, engine, pattern_work) do
-    if String.starts_with?(text, "text(") do
-      utf8_text(text, line, pattern_work)
-    else
-      {field_type(text, line, engine), pattern_work}
+    cond do
+      String.starts_with?(text, "text(") ->
+        utf8_text(text, line, pattern_work)
+
+      String.starts_with?(text, "list(") ->
+        list_type(text, line, engine, pattern_work)
+
+      true ->
+        {field_type(text, line, engine), pattern_work}
     end
   end
 
@@ -1552,11 +1557,65 @@ defmodule ContractLab.Compiler do
             fail(:type, line)
         end
 
-      Regex.match?(~r/^integer\([0-9]+\.\.[0-9]+\)$/, text) ->
-        [_, low, high] = Regex.run(~r/^integer\(([0-9]+)\.\.([0-9]+)\)$/, text)
+      text == "uuid" ->
+        %{kind: :uuid}
+
+      Regex.match?(
+        ~r/^decimal\((-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?)\.\.(-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?)\)$/,
+        text
+      ) ->
+        [_, low, high] =
+          Regex.run(
+            ~r/^decimal\((-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?)\.\.(-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?)\)$/,
+            text
+          )
+
+        case ContractLab.Decimal.bounds(low, high) do
+          {:ok, scale} -> %{kind: :decimal, min: low, max: high, scale: scale}
+          :error -> fail(:type, line, text)
+        end
+
+      Regex.match?(~r/^timestamp\([0-9]+\.\.[0-9]+\)$/, text) ->
+        [_, low, high] = Regex.run(~r/^timestamp\(([0-9]+)\.\.([0-9]+)\)$/, text)
         low = String.to_integer(low)
         high = String.to_integer(high)
         ensure(low <= high and high <= 9_007_199_254_740_991, :type, line)
+        %{kind: :timestamp, min: low, max: high}
+
+      Regex.match?(~r/^timestamptz\([0-9]+\.\.[0-9]+\)$/, text) ->
+        [_, low, high] = Regex.run(~r/^timestamptz\(([0-9]+)\.\.([0-9]+)\)$/, text)
+        low = String.to_integer(low)
+        high = String.to_integer(high)
+        ensure(low <= high and high <= 9_007_199_254_740_991, :type, line)
+        %{kind: :timestamptz, min: low, max: high}
+
+      Regex.match?(~r/^duration\([1-9][0-9]*(?:s|m|h|d)\.\.[1-9][0-9]*(?:s|m|h|d)\)$/, text) ->
+        [_, low, high] =
+          Regex.run(~r/^duration\(([1-9][0-9]*(?:s|m|h|d))\.\.([1-9][0-9]*(?:s|m|h|d))\)$/, text)
+
+        low = duration(low, line)
+        high = duration(high, line)
+        ensure(low <= high, :type, line)
+        %{kind: :duration, min: low, max: high}
+
+      Regex.match?(~r/^bytes\([0-9]+\.\.[0-9]+\)$/, text) ->
+        [_, low, high] = Regex.run(~r/^bytes\(([0-9]+)\.\.([0-9]+)\)$/, text)
+        low = String.to_integer(low)
+        high = String.to_integer(high)
+        ensure(low <= high and high <= 9_007_199_254_740_991, :type, line)
+        %{kind: :bytes, min: low, max: high}
+
+      Regex.match?(~r/^integer\(-?[0-9]+\.\.-?[0-9]+\)$/, text) ->
+        [_, low, high] = Regex.run(~r/^integer\((-?[0-9]+)\.\.(-?[0-9]+)\)$/, text)
+        low = String.to_integer(low)
+        high = String.to_integer(high)
+
+        ensure(
+          low <= high and low >= -9_007_199_254_740_991 and high <= 9_007_199_254_740_991,
+          :type,
+          line
+        )
+
         %{kind: :integer, min: low, max: high}
 
       Regex.match?(~r/^(enum|ref)\([a-z][a-z0-9_|]*\)$/, text) ->
@@ -1584,6 +1643,34 @@ defmodule ContractLab.Compiler do
         fail(:type, line, text)
     end
   end
+
+  defp list_type("list(" <> rest, line, engine, pattern_work) do
+    ensure(String.ends_with?(rest, ")"), :type, line)
+    body = binary_part(rest, 0, byte_size(rest) - 1)
+
+    case String.split(body, ", ", parts: 2) do
+      [count, element] ->
+        case Regex.run(~r/^([0-9]+)\.\.([0-9]+)$/, count) do
+          [_, min, max] ->
+            min = String.to_integer(min)
+            max = String.to_integer(max)
+            ensure(min <= max and max <= 256, :type, line)
+            {element, pattern_work} = field_type(element, line, engine, pattern_work)
+            ensure(element.kind != :list, :type, line, "A list element cannot be a list")
+            {%{kind: :list, min: min, max: max, element: element}, pattern_work}
+
+          _ ->
+            fail(:type, line, body)
+        end
+
+      _ ->
+        fail(:type, line, body)
+    end
+  end
+
+  defp references_message?(%{kind: :ref}), do: true
+  defp references_message?(%{kind: :list, element: element}), do: references_message?(element)
+  defp references_message?(_), do: false
 
   defp utf8_text(text, line, pattern_work) do
     {text, pattern} =

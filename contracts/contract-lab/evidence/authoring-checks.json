@@ -91,7 +91,7 @@
       "skills/multi-agent-contracts/scripts/contract",
       "replay",
       "contract-lab/contracts/history-review.band",
-      "/tmp/contract-negative-7p0y6qg6/wrong-expectation.json"
+      "<TMP>/contract-negative-7p0y6qg6/wrong-expectation.json"
     ],
     "cwd": "/tmp",
     "exit_code": 1,

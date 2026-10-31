@@ -5,7 +5,7 @@
         "python3",
         "spec/conformance/replies-adversarial/run_replies_adversarial.py",
         "--old-repo",
-        "~/band-codex-engineers-workspace/felix-replies-baseline-95c9b25",
+        "<WORKSPACE>/felix-replies-baseline-95c9b25",
         "--report",
         "spec/conformance/replies-adversarial/evidence/baseline-red.json"
       ],

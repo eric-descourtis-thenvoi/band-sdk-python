@@ -64,7 +64,7 @@
   "commands": [
     {
       "argv": [
-        "~/tv/band-codex-engineers/.venv/bin/python3",
+        "<WORKSPACE>/band-codex-engineers/.venv/bin/python3",
         "spec/conformance/replies-adversarial/run_replies_adversarial.py",
         "--write"
       ],
@@ -72,7 +72,7 @@
     },
     {
       "argv": [
-        "~/tv/band-codex-engineers/.venv/bin/python3",
+        "<WORKSPACE>/band-codex-engineers/.venv/bin/python3",
         "spec/conformance/replies-adversarial/run_replies_adversarial.py",
         "--write"
       ],
@@ -80,12 +80,12 @@
     },
     {
       "argv": [
-        "~/tv/band-codex-engineers/.venv/bin/python3",
+        "<WORKSPACE>/band-codex-engineers/.venv/bin/python3",
         "spec/conformance/replies-adversarial/run_replies_adversarial.py",
         "--repo",
-        "~/band-codex-engineers-workspace/felix-replies-u-kenji-baseline-5c00d5e",
+        "<WORKSPACE>/felix-replies-u-kenji-baseline-5c00d5e",
         "--old-repo",
-        "~/band-codex-engineers-workspace/felix-replies-baseline-95c9b25",
+        "<WORKSPACE>/felix-replies-baseline-95c9b25",
         "--report",
         "spec/conformance/replies-adversarial/evidence/u-baseline-red.json"
       ],
@@ -97,12 +97,12 @@
     },
     {
       "argv": [
-        "~/tv/band-codex-engineers/.venv/bin/python3",
+        "<WORKSPACE>/band-codex-engineers/.venv/bin/python3",
         "spec/conformance/replies-adversarial/run_replies_adversarial.py",
         "--repo",
-        "~/band-codex-engineers-workspace/felix-replies-u-kenji-baseline-3252030",
+        "<WORKSPACE>/felix-replies-u-kenji-baseline-3252030",
         "--old-repo",
-        "~/band-codex-engineers-workspace/felix-replies-baseline-95c9b25",
+        "<WORKSPACE>/felix-replies-baseline-95c9b25",
         "--report",
         "spec/conformance/replies-adversarial/evidence/u-baseline-red.json"
       ],
@@ -122,12 +122,12 @@
     },
     {
       "argv": [
-        "~/tv/band-codex-engineers/.venv/bin/python3",
+        "<WORKSPACE>/band-codex-engineers/.venv/bin/python3",
         "spec/conformance/replies-adversarial/run_replies_adversarial.py",
         "--repo",
-        "~/band-codex-engineers-workspace/felix-replies-u-kenji-baseline",
+        "<WORKSPACE>/felix-replies-u-kenji-baseline",
         "--old-repo",
-        "~/band-codex-engineers-workspace/felix-replies-baseline-95c9b25",
+        "<WORKSPACE>/felix-replies-baseline-95c9b25",
         "--report",
         "spec/conformance/replies-adversarial/evidence/u-baseline-red.json"
       ],

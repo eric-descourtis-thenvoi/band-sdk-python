@@ -22,7 +22,7 @@ Running ExUnit with seed: 0, max_cases: 24
      match (=) failed
      code:  assert {:ok, c} =
               ContractLab.load(
-                "/home/eric/tv/verification/multi-agent-skill-design-20261010/contract-lab/contracts/all-participants.band"
+                "<WORKSPACE>/verification/multi-agent-skill-design-20261010/contract-lab/contracts/all-participants.band"
               )
      left:  {:ok, c}
      right: {:error, :not_implemented}
@@ -36,7 +36,7 @@ Running ExUnit with seed: 0, max_cases: 24
      match (=) failed
      code:  assert {:ok, c} =
               ContractLab.load(
-                "/home/eric/tv/verification/multi-agent-skill-design-20261010/contract-lab/contracts/assignment.band"
+                "<WORKSPACE>/verification/multi-agent-skill-design-20261010/contract-lab/contracts/assignment.band"
               )
      left:  {:ok, c}
      right: {:error, :not_implemented}
@@ -50,7 +50,7 @@ Running ExUnit with seed: 0, max_cases: 24
      match (=) failed
      code:  assert {:ok, c} =
               ContractLab.load(
-                "/home/eric/tv/verification/multi-agent-skill-design-20261010/contract-lab/contracts/bounded-review.band"
+                "<WORKSPACE>/verification/multi-agent-skill-design-20261010/contract-lab/contracts/bounded-review.band"
               )
      left:  {:ok, c}
      right: {:error, :not_implemented}
@@ -64,7 +64,7 @@ Running ExUnit with seed: 0, max_cases: 24
      match (=) failed
      code:  assert {:ok, c} =
               ContractLab.load(
-                "/home/eric/tv/verification/multi-agent-skill-design-20261010/contract-lab/contracts/explicit-infinity.band"
+                "<WORKSPACE>/verification/multi-agent-skill-design-20261010/contract-lab/contracts/explicit-infinity.band"
               )
      left:  {:ok, c}
      right: {:error, :not_implemented}
@@ -78,7 +78,7 @@ Running ExUnit with seed: 0, max_cases: 24
      match (=) failed
      code:  assert {:ok, c} =
               ContractLab.load(
-                "/home/eric/tv/verification/multi-agent-skill-design-20261010/contract-lab/contracts/first-responder.band"
+                "<WORKSPACE>/verification/multi-agent-skill-design-20261010/contract-lab/contracts/first-responder.band"
               )
      left:  {:ok, c}
      right: {:error, :not_implemented}
@@ -92,7 +92,7 @@ Running ExUnit with seed: 0, max_cases: 24
      match (=) failed
      code:  assert {:ok, c} =
               ContractLab.load(
-                "/home/eric/tv/verification/multi-agent-skill-design-20261010/contract-lab/contracts/program-counter.band"
+                "<WORKSPACE>/verification/multi-agent-skill-design-20261010/contract-lab/contracts/program-counter.band"
               )
      left:  {:ok, c}
      right: {:error, :not_implemented}
@@ -106,7 +106,7 @@ Running ExUnit with seed: 0, max_cases: 24
      match (=) failed
      code:  assert {:ok, c} =
               ContractLab.load(
-                "/home/eric/tv/verification/multi-agent-skill-design-20261010/contract-lab/contracts/progress-events.band"
+                "<WORKSPACE>/verification/multi-agent-skill-design-20261010/contract-lab/contracts/progress-events.band"
               )
      left:  {:ok, c}
      right: {:error, :not_implemented}
@@ -120,7 +120,7 @@ Running ExUnit with seed: 0, max_cases: 24
      match (=) failed
      code:  assert {:ok, c} =
               ContractLab.load(
-                "/home/eric/tv/verification/multi-agent-skill-design-20261010/contract-lab/contracts/room-events.band"
+                "<WORKSPACE>/verification/multi-agent-skill-design-20261010/contract-lab/contracts/room-events.band"
               )
      left:  {:ok, c}
      right: {:error, :not_implemented}
@@ -134,7 +134,7 @@ Running ExUnit with seed: 0, max_cases: 24
      match (=) failed
      code:  assert {:ok, c} =
               ContractLab.load(
-                "/home/eric/tv/verification/multi-agent-skill-design-20261010/contract-lab/contracts/selected-deadlines.band"
+                "<WORKSPACE>/verification/multi-agent-skill-design-20261010/contract-lab/contracts/selected-deadlines.band"
               )
      left:  {:ok, c}
      right: {:error, :not_implemented}
@@ -148,7 +148,7 @@ Running ExUnit with seed: 0, max_cases: 24
      match (=) failed
      code:  assert {:ok, c} =
               ContractLab.load(
-                "/home/eric/tv/verification/multi-agent-skill-design-20261010/contract-lab/contracts/team-review.band"
+                "<WORKSPACE>/verification/multi-agent-skill-design-20261010/contract-lab/contracts/team-review.band"
               )
      left:  {:ok, c}
      right: {:error, :not_implemented}

@@ -30,6 +30,7 @@ from remote_agent.transport import (
     InboxCursorConflict,
     InputVerificationError,
     ReferenceRoom,
+    RoomScopeUnavailable,
     TransportError,
 )
 from remote_agent.types import JsonObject, SourcePath
@@ -657,6 +658,12 @@ class HTTPRoom(ReferenceRoom):
                 raise TransportError("Room connection failed")
             if result.get("status") != 200:
                 body = result.get("body")
+                if (
+                    self.authentication == "band-api-key"
+                    and result.get("status") == 404
+                    and body == {"error": "not_found"}
+                ):
+                    raise RoomScopeUnavailable("Native room scope is unavailable")
                 if (
                     method == "POST"
                     and path == "/v1/inbox"

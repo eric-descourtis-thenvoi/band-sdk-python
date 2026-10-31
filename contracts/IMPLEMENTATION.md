@@ -22,7 +22,7 @@ Requested by Eric on October 10, 2026. The local reference includes an Elixir ro
 
 Current publication status: local only. No changes have been merged, deployed, or sent to colleagues. The production Band service and the earlier Python prototype remain outside this implementation.
 
-The four skills are installed under `~/.codex/skills` as links to the versioned sources in this repository. Their source and installed validators pass, references resolve, and the installed helper replays an asserted scenario successfully. The behavioral exercise was performed by the authoring agent; no independent subagent evaluation is claimed.
+The four skills are installed under `<HOME>/.codex/skills` as links to the versioned sources in this repository. Their source and installed validators pass, references resolve, and the installed helper replays an asserted scenario successfully. The behavioral exercise was performed by the authoring agent; no independent subagent evaluation is claimed.
 
 Validation on October 10: 158 contract-lab tests and 48 Python remote-runtime tests pass. The October 13 counts (343 core and 84 header tests) are in the last section of this ledger. Elixir compilation treats warnings as errors, formatting passes, all 14 contracts compile, and a deliberately wrong scenario expectation produces a nonzero CLI exit. The Python package builds and the remote HTTP/SQLite demo passes. Earlier unchanged components retain their recorded 74 discovery tests and 25 room-simulator tests. Feature changes have observed failing then passing checks; documentation and skill files have suitable structure, link and execution checks.
 
@@ -101,7 +101,7 @@ immutable maximums. See the [design comparisons](spec/multi-agent-skills.md),
 semantics](spec/renewable-timeouts.md).
 
 Observed RED/GREEN evidence is in
-`~/tv/verification/multi-agent-skill-evolution-20261013`. The final local suite
+`<WORKSPACE>/verification/multi-agent-skill-evolution-20261013`. The final local suite
 passed 315 tests, including portable restart, privacy, time boundaries and a regression
 ensuring hard-only maximums cannot shorten initial response windows. Eight current
 examples compile and return role queries. The coordination suite passes 17 independent

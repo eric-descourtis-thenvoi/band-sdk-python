@@ -306,14 +306,14 @@ class TestAuthorScope(AuthorScopeFixture):
                     with self.assertRaisesRegex(ValueError, "held completion"):
                         agent.retry_held(identifier, attempt)
 
-    def test_claim_scope_error_keeps_the_same_unknown_claim(self) -> None:
+    def test_generic_claim_not_found_keeps_the_same_unknown_claim(self) -> None:
         _, journal = self.fixture()
         claims = []
 
         def transport(operation: Any, body: Any) -> Never:
             self.assertEqual(operation, "claim")
             claims.append(body["id"])
-            raise http_error()
+            raise http_error(body=b'{"error":"upstream_not_found"}')
 
         agent = StudioAgent(journal, transport)
         for _ in range(2):

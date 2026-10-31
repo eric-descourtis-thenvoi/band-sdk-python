@@ -169,10 +169,24 @@ defmodule ContractLab.Engine do
     do: {"", max(bytes.min, if(graphemes, do: graphemes.min, else: 0))}
 
   defp shortest(%{kind: :text, min: min}), do: {"", min}
-  defp shortest(%{kind: :integer, min: min}), do: {min, 0}
+  # The integer nearest zero is the shortest: a signed range's minimum can be the longest.
+  defp shortest(%{kind: :integer, min: low, max: high}), do: {low |> max(0) |> min(high), 0}
   defp shortest(%{kind: :boolean}), do: {true, 0}
   defp shortest(%{kind: :enum, values: values}), do: {Enum.min_by(values, &byte_size/1), 0}
   defp shortest(%{kind: :ref}), do: {"a", 0}
+  defp shortest(%{kind: :uuid}), do: {"00000000-0000-0000-0000-000000000000", 0}
+  defp shortest(%{kind: :timestamp, min: min}), do: {min, 0}
+  # Every `Z` spelling has the same 24 bytes, so the witness need not be in range: a bound
+  # past year 9999 has no spelling at all.
+  defp shortest(%{kind: :timestamptz}), do: {"1970-01-01T00:00:00.000Z", 0}
+  defp shortest(%{kind: :duration, min: min}), do: {min, 0}
+  defp shortest(%{kind: :bytes, min: min}), do: {"", encoded_base64_size(min)}
+  defp shortest(%{kind: :decimal, min: min}), do: {ContractLab.Decimal.canonical(min), 0}
+
+  defp shortest(%{kind: :list, min: min, element: element}) do
+    {value, extra} = shortest(element)
+    {List.duplicate(value, min), extra * min}
+  end
 
   @doc "Every extension this engine implements: what a full reference host can state."
   def implemented, do: @implemented
@@ -960,7 +974,160 @@ defmodule ContractLab.Engine do
   defp field_violation(name, %{kind: :ref}, v),
     do: if(valid_id?(v), do: nil, else: %{field: name, constraint: "ref"})
 
+  defp field_violation(name, %{kind: :uuid}, v) do
+    if is_binary(v) and
+         Regex.match?(~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/, v),
+       do: nil,
+       else: %{field: name, constraint: "type", expected: "uuid"}
+  end
+
+  defp field_violation(name, %{kind: :timestamp, min: min, max: max}, v) do
+    cond do
+      not is_integer(v) -> %{field: name, constraint: "type", expected: "timestamp"}
+      v not in min..max -> %{field: name, constraint: "range", min: min, max: max}
+      true -> nil
+    end
+  end
+
+  defp field_violation(name, %{kind: :timestamptz, min: min, max: max}, v) do
+    case zoned_instant(v) do
+      {:ok, instant} ->
+        if instant in min..max,
+          do: nil,
+          else: %{field: name, constraint: "range", min: min, max: max}
+
+      :error ->
+        %{field: name, constraint: "type", expected: "timestamptz"}
+    end
+  end
+
+  defp field_violation(name, %{kind: :duration, min: min, max: max}, v) do
+    cond do
+      not is_integer(v) -> %{field: name, constraint: "type", expected: "duration"}
+      v not in min..max -> %{field: name, constraint: "range", min: min, max: max}
+      true -> nil
+    end
+  end
+
+  defp field_violation(name, %{kind: :decimal, min: min, max: max, scale: scale}, v) do
+    cond do
+      not ContractLab.Decimal.canonical?(v, scale) ->
+        %{field: name, constraint: "type", expected: "decimal"}
+
+      ContractLab.Decimal.compare(v, min) == :lt or ContractLab.Decimal.compare(v, max) == :gt ->
+        %{field: name, constraint: "range", min: min, max: max}
+
+      true ->
+        nil
+    end
+  end
+
+  defp field_violation(name, %{kind: :bytes, min: min, max: max}, v) do
+    case decoded_base64(v) do
+      {:ok, decoded} ->
+        if byte_size(decoded) in min..max,
+          do: nil,
+          else: %{field: name, constraint: "bytes", min: min, max: max}
+
+      :error ->
+        %{field: name, constraint: "type", expected: "bytes"}
+    end
+  end
+
+  defp field_violation(name, %{kind: :list, min: min, max: max, element: element}, v) do
+    cond do
+      not is_list(v) ->
+        %{field: name, constraint: "type", expected: "list"}
+
+      length(v) not in min..max ->
+        %{field: name, constraint: "range", min: min, max: max}
+
+      true ->
+        Enum.find_value(v, &field_violation(name, element, &1))
+    end
+  end
+
   defp field_violation(name, _, _), do: %{field: name, constraint: "type"}
+
+  # RFC 3339 with millisecond precision. Zero offset is only `Z`, so `+00:00`
+  # is not a second spelling. Any other offset stays `±HH:MM`. \A and \z, because
+  # `$` also matches before a final line feed.
+  @zoned ~r/\A(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3})(Z|[+-](?:0\d|1[0-8]):[0-5]\d)\z/
+  @safe_instant 9_007_199_254_740_991
+
+  defp zoned_instant(value) when is_binary(value) do
+    case Regex.run(@zoned, value, capture: :all_but_first) do
+      [year, month, day, hour, minute, second, millis, zone] ->
+        with {year, ""} <- Integer.parse(year),
+             {month, ""} <- Integer.parse(month),
+             {day, ""} <- Integer.parse(day),
+             {hour, ""} <- Integer.parse(hour),
+             {minute, ""} <- Integer.parse(minute),
+             {second, ""} <- Integer.parse(second),
+             {millis, ""} <- Integer.parse(millis),
+             offset when is_integer(offset) <- offset_ms(zone),
+             {:ok, naive} <-
+               NaiveDateTime.new(year, month, day, hour, minute, second, {millis * 1000, 3}),
+             {:ok, utc} <- DateTime.from_naive(naive, "Etc/UTC") do
+          instant = DateTime.to_unix(utc, :millisecond) - offset
+
+          if instant >= -@safe_instant and instant <= @safe_instant,
+            do: {:ok, instant},
+            else: :error
+        else
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp zoned_instant(_), do: :error
+
+  defp offset_ms("Z"), do: 0
+  defp offset_ms("+00:00"), do: :error
+  defp offset_ms("-00:00"), do: :error
+
+  defp offset_ms(<<sign, h1, h2, ?:, m1, m2>>) when sign in [?+, ?-] do
+    hours = (h1 - ?0) * 10 + (h2 - ?0)
+    minutes = (m1 - ?0) * 10 + (m2 - ?0)
+
+    if hours < 18 or minutes == 0 do
+      magnitude = hours * 3_600_000 + minutes * 60_000
+      if sign == ?-, do: -magnitude, else: magnitude
+    else
+      :error
+    end
+  end
+
+  defp offset_ms(_), do: :error
+
+  # Standard base64 (RFC 4648), with padding. The re-encode rejects a spelling
+  # the decoder would accept but that is not the canonical payload.
+  defp decoded_base64(value) when is_binary(value) do
+    if canonical_base64?(value), do: {:ok, :base64.decode(value)}, else: :error
+  end
+
+  defp decoded_base64(_), do: :error
+
+  defp canonical_base64?(""), do: true
+
+  defp canonical_base64?(value) do
+    rem(byte_size(value), 4) == 0 and
+      Regex.match?(
+        ~r/^(?:[A-Za-z0-9+\/]{4})*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=|[A-Za-z0-9+\/]{4})$/,
+        value
+      ) and
+      try do
+        :base64.encode(:base64.decode(value)) == value
+      rescue
+        ArgumentError -> false
+      end
+  end
+
+  defp encoded_base64_size(0), do: 0
+  defp encoded_base64_size(n) when n > 0, do: div(n + 2, 3) * 4
   defp rules(s), do: s.contract.states[s.state].rules ++ ReplyWait.any_rules(s.contract, s.state)
 
   defp role_for(s, actor),
