@@ -331,7 +331,7 @@
       "sha256": "98a4ab666e66f7374589371d3184c30adc5c2e89b196f2aab66168f620060f01",
       "mode": "0o644",
       "adaptation_pending": false,
-      "published_sha256": "33edf945793ed51183e16818be56a49a3af0b5123664e5457067522c8f9a80a4"
+      "published_sha256": "1c0fb55f52bd2df153e34e713438901b0e56e40ac3ac19ebbd0e1a9bf0ddf6b1"
     },
     "contract-lab/evidence/authoring-compile.log": {
       "target": "contracts/contract-lab/evidence/authoring-compile.log",
@@ -492,7 +492,7 @@
       "sha256": "16028aad12a6254bcbbb0dc4b8c0bef6b782716c995beaf8db7a682e1ddf2515",
       "mode": "0o644",
       "adaptation_pending": false,
-      "published_sha256": "16028aad12a6254bcbbb0dc4b8c0bef6b782716c995beaf8db7a682e1ddf2515"
+      "published_sha256": "73455684e664d2eb539516fa0dacf7898adf6a278262a7369a7d2134f42c55ec"
     },
     "contract-lab/evidence/deps.log": {
       "target": "contracts/contract-lab/evidence/deps.log",
@@ -562,7 +562,7 @@
       "sha256": "8c9ccc8508f06b163cb8908c73f380f532bd276059f9eecd15f7b68b0059cd70",
       "mode": "0o644",
       "adaptation_pending": false,
-      "published_sha256": "8c9ccc8508f06b163cb8908c73f380f532bd276059f9eecd15f7b68b0059cd70"
+      "published_sha256": "6c3b5055fc196ae227950d60882adaa4b6c25ee7e16ad23e37df91b506d13d76"
     },
     "contract-lab/evidence/journal-checks.json": {
       "target": "contracts/contract-lab/evidence/journal-checks.json",
@@ -681,7 +681,7 @@
       "sha256": "0e6df2cdeb713e522d6a0a8adee5363738baddd4f87751a0ef2a2683cb0cef69",
       "mode": "0o644",
       "adaptation_pending": false,
-      "published_sha256": "0e6df2cdeb713e522d6a0a8adee5363738baddd4f87751a0ef2a2683cb0cef69"
+      "published_sha256": "321f71e4bb29f5f622f19bd3691ac07584a901aec0f0efb5390cd0ddb4c9804e"
     },
     "contract-lab/evidence/room-recovery-format.log": {
       "target": "contracts/contract-lab/evidence/room-recovery-format.log",
@@ -723,7 +723,7 @@
       "sha256": "6f9c29f17384ee1bb8fc532d037f92e98404dd871fdc84b6dfebb7d0c4cf414a",
       "mode": "0o644",
       "adaptation_pending": false,
-      "published_sha256": "2e0d2bd044e2a7219cc100ce8ab8d88d88d7ce4f2d10b382a081ee07af859969"
+      "published_sha256": "47e686c0ecbb3dd07ca1cd1f938a1a558a58259c5d9175a3c17c5618270f57c5"
     },
     "contract-lab/evidence/summary-metadata-checks.json": {
       "target": "contracts/contract-lab/evidence/summary-metadata-checks.json",
@@ -786,7 +786,7 @@
       "sha256": "bc6e93865acbedbb3af796559cb414168e45dcb1025e9f9dbc6a957a719dc7a3",
       "mode": "0o644",
       "adaptation_pending": false,
-      "published_sha256": "bc6e93865acbedbb3af796559cb414168e45dcb1025e9f9dbc6a957a719dc7a3"
+      "published_sha256": "c786e74799e0058142319536854a87b4d0a0b313409084110ab1fef58da98607"
     },
     "contract-lab/evidence/transport-red.json": {
       "target": "contracts/contract-lab/evidence/transport-red.json",
@@ -800,7 +800,7 @@
       "sha256": "191669975905457485e3df207135891974ff82614260c686bca1b03d985f7548",
       "mode": "0o644",
       "adaptation_pending": false,
-      "published_sha256": "191669975905457485e3df207135891974ff82614260c686bca1b03d985f7548"
+      "published_sha256": "2f449b2f48583cccacd9ad2a07de496b1ea4b12ae09e3a0d76d274e2902938c9"
     },
     "contract-lab/examples/carrier_round_trip.exs": {
       "target": "contracts/contract-lab/examples/carrier_round_trip.exs",
@@ -2921,7 +2921,7 @@
       "sha256": "d1be0c8d39242621061fa7ab53646c4fe938445a013741d2af4b358339bcd4f1",
       "mode": "0o644",
       "adaptation_pending": false,
-      "published_sha256": "f20ebcea3d5866a8304514e16d638def3b1b6d1c685bc7942bb22422bf838b3f"
+      "published_sha256": "438ee8b1ab122dc9b25a86976918f4c22fd7edf4e44943926472f317418975ce"
     },
     "room-sim/evidence/consumer.log": {
       "target": "contracts/room-sim/evidence/consumer.log",
@@ -4545,7 +4545,7 @@
       "sha256": "9e20c7a4bca22b9f1a2b6c3ee1a21374a68dccf42184a172789b3e4400f7d038",
       "mode": "0o644",
       "adaptation_pending": false,
-      "published_sha256": "9c67741cf47f20b8139c943a1cc9c0837a430d6bcfd6725e24fac26a0c53c185"
+      "published_sha256": "9a42999990189357df59f921d38dc698979ed2729ea8240b687d808a0fd97305"
     },
     "spec/conformance/replies-adversarial/evidence/baseline-red.json": {
       "target": "contracts/spec/conformance/replies-adversarial/evidence/baseline-red.json",
@@ -4615,21 +4615,21 @@
       "sha256": "53e9190d6af35522c67fb9e646e7e2fb15af888942e06f5147ad7481040f6a5b",
       "mode": "0o644",
       "adaptation_pending": false,
-      "published_sha256": "53e9190d6af35522c67fb9e646e7e2fb15af888942e06f5147ad7481040f6a5b"
+      "published_sha256": "6c439ac5bc425041a1d35eea477d08d6e6379cf42d6d84a5589771b6d4b4599d"
     },
     "spec/conformance/replies-adversarial/evidence/u-validation.json": {
       "target": "contracts/spec/conformance/replies-adversarial/evidence/u-validation.json",
       "sha256": "ac2deb4386c76c1441b32710d0986598e0d3edd795a624c30892a897fd29a1dd",
       "mode": "0o644",
       "adaptation_pending": false,
-      "published_sha256": "72faddd25c2f402bd00dc21b3d23eb1860fa534da6364e9a3f5c7b1bb7fb7a9c"
+      "published_sha256": "f5a3f8d1d475ba195e0033c1bfa09a198ffbe5a21c2ea7ef956b3c5fe2c0410c"
     },
     "spec/conformance/replies-adversarial/evidence/validation.json": {
       "target": "contracts/spec/conformance/replies-adversarial/evidence/validation.json",
       "sha256": "466034e12a34297c49cb49b4a7747f3e04f45ab4dd86508b06d4f5ae74652626",
       "mode": "0o644",
       "adaptation_pending": false,
-      "published_sha256": "e5215bd7770d82e36cc2a1efb8d645c2aa9b535b32e13b260970453ceb613ac2"
+      "published_sha256": "ec49e017a29c3d8f037d0b4bab9064f4231e9e71aac39bfdbd5f4f1d284339b1"
     },
     "spec/conformance/replies-adversarial/replies_adversarial.exs": {
       "target": "contracts/spec/conformance/replies-adversarial/replies_adversarial.exs",
@@ -5643,7 +5643,68 @@
     "published_bytes": [
       "deploy/band_database_test.exs"
     ],
-    "note": "sha256 records the original source bytes; published_sha256 records the SDK-adapted or redacted publication bytes, including the fixture placeholder."
+    "note": "sha256 records the original source bytes; published_sha256 records the SDK-adapted or redacted publication bytes, including the fixture placeholder.",
+    "host_paths": {
+      "note": "Personal home, workstation and temporary evidence roots use <HOME>, <WORKSPACE> and <TMP> placeholders. Relative suffixes, JSON values other than path strings, log line counts and recorded outcomes are preserved.",
+      "files": {
+        "IMPLEMENTATION.md": {
+          "before_sha256": "b6289ea6ccd55b4ac4edb60558d1bbf4b1861751e9e7f896000fb35534986017",
+          "published_sha256": "a7d2db3d3c8918f0bcdbc3f64d357a58f3013dc1d9340af7963e81d8924bcd7c"
+        },
+        "contract-lab/evidence/authoring-checks.json": {
+          "before_sha256": "33edf945793ed51183e16818be56a49a3af0b5123664e5457067522c8f9a80a4",
+          "published_sha256": "1c0fb55f52bd2df153e34e713438901b0e56e40ac3ac19ebbd0e1a9bf0ddf6b1"
+        },
+        "contract-lab/evidence/compiler-red.log": {
+          "before_sha256": "16028aad12a6254bcbbb0dc4b8c0bef6b782716c995beaf8db7a682e1ddf2515",
+          "published_sha256": "73455684e664d2eb539516fa0dacf7898adf6a278262a7369a7d2134f42c55ec"
+        },
+        "contract-lab/evidence/engine-red.log": {
+          "before_sha256": "8c9ccc8508f06b163cb8908c73f380f532bd276059f9eecd15f7b68b0059cd70",
+          "published_sha256": "6c3b5055fc196ae227950d60882adaa4b6c25ee7e16ad23e37df91b506d13d76"
+        },
+        "contract-lab/evidence/room-recovery-demo.log": {
+          "before_sha256": "0e6df2cdeb713e522d6a0a8adee5363738baddd4f87751a0ef2a2683cb0cef69",
+          "published_sha256": "321f71e4bb29f5f622f19bd3691ac07584a901aec0f0efb5390cd0ddb4c9804e"
+        },
+        "contract-lab/evidence/skills-validation.json": {
+          "before_sha256": "2e0d2bd044e2a7219cc100ce8ab8d88d88d7ce4f2d10b382a081ee07af859969",
+          "published_sha256": "47e686c0ecbb3dd07ca1cd1f938a1a558a58259c5d9175a3c17c5618270f57c5"
+        },
+        "contract-lab/evidence/transport-red-initial.log": {
+          "before_sha256": "bc6e93865acbedbb3af796559cb414168e45dcb1025e9f9dbc6a957a719dc7a3",
+          "published_sha256": "c786e74799e0058142319536854a87b4d0a0b313409084110ab1fef58da98607"
+        },
+        "contract-lab/evidence/transport-red.log": {
+          "before_sha256": "191669975905457485e3df207135891974ff82614260c686bca1b03d985f7548",
+          "published_sha256": "2f449b2f48583cccacd9ad2a07de496b1ea4b12ae09e3a0d76d274e2902938c9"
+        },
+        "multi-agent-skills-contract-and-engine-v3.md": {
+          "before_sha256": "c24a9c8ece2ccc975d98c4d78675c35841327cc686c50a53199497d479485f6b",
+          "published_sha256": "80626db63393b5d365ed57e3769628eec7e7edfdfa566765402c9762275a769f"
+        },
+        "room-sim/evidence/consumer-check.json": {
+          "before_sha256": "f20ebcea3d5866a8304514e16d638def3b1b6d1c685bc7942bb22422bf838b3f",
+          "published_sha256": "438ee8b1ab122dc9b25a86976918f4c22fd7edf4e44943926472f317418975ce"
+        },
+        "spec/conformance/replies-adversarial/README.md": {
+          "before_sha256": "9c67741cf47f20b8139c943a1cc9c0837a430d6bcfd6725e24fac26a0c53c185",
+          "published_sha256": "9a42999990189357df59f921d38dc698979ed2729ea8240b687d808a0fd97305"
+        },
+        "spec/conformance/replies-adversarial/evidence/u-decision7-validation.json": {
+          "before_sha256": "53e9190d6af35522c67fb9e646e7e2fb15af888942e06f5147ad7481040f6a5b",
+          "published_sha256": "6c439ac5bc425041a1d35eea477d08d6e6379cf42d6d84a5589771b6d4b4599d"
+        },
+        "spec/conformance/replies-adversarial/evidence/u-validation.json": {
+          "before_sha256": "72faddd25c2f402bd00dc21b3d23eb1860fa534da6364e9a3f5c7b1bb7fb7a9c",
+          "published_sha256": "f5a3f8d1d475ba195e0033c1bfa09a198ffbe5a21c2ea7ef956b3c5fe2c0410c"
+        },
+        "spec/conformance/replies-adversarial/evidence/validation.json": {
+          "before_sha256": "e5215bd7770d82e36cc2a1efb8d645c2aa9b535b32e13b260970453ceb613ac2",
+          "published_sha256": "ec49e017a29c3d8f037d0b4bab9064f4231e9e71aac39bfdbd5f4f1d284339b1"
+        }
+      }
+    }
   },
   "source_hash_scope": "Each sha256 records original source bytes at revision; published_sha256 records actual target bytes after SDK adaptations and publication redactions. The mapping covers imported files, not all upstream files or SDK-only additions.",
   "migration_status": "Source mappings are integrated. Runtime, package and release qualification are separate checks."

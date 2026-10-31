@@ -185,7 +185,7 @@ Finished in 0.6 seconds (0.6s async, 0.00s sync)
         {:ok, c} =
           ContractLab.load(
             Path.join(
-              "/home/eric/tv/verification/multi-agent-skill-design-20261010/contract-lab/contracts",
+              "<WORKSPACE>/verification/multi-agent-skill-design-20261010/contract-lab/contracts",
               "room-events.band"
             )
           )

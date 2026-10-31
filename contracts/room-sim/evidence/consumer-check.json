@@ -6,7 +6,7 @@
     "0",
     "--warnings-as-errors"
   ],
-  "cwd": "~/tv/verification/room-sim-consumer-20261010",
+  "cwd": "<WORKSPACE>/verification/room-sim-consumer-20261010",
   "exit_code": 0,
   "wall_seconds": 0.962,
   "test_source": "The exact second Elixir code block in README.md, wrapped in ExUnit; library is a local test-only path dependency"

@@ -4,7 +4,7 @@
       "skill": "multi-agent-contracts",
       "validator_exit": 0,
       "validator_output": "Skill is valid!",
-      "installed": "~/.codex/skills/multi-agent-contracts",
+      "installed": "<HOME>/.codex/skills/multi-agent-contracts",
       "source": "skills/multi-agent-contracts",
       "installed_validator_exit": 0
     },
@@ -12,7 +12,7 @@
       "skill": "create-multi-agent-contract",
       "validator_exit": 0,
       "validator_output": "Skill is valid!",
-      "installed": "~/.codex/skills/create-multi-agent-contract",
+      "installed": "<HOME>/.codex/skills/create-multi-agent-contract",
       "source": "skills/create-multi-agent-contract",
       "installed_validator_exit": 0
     },
@@ -20,7 +20,7 @@
       "skill": "iterate-multi-agent-contract",
       "validator_exit": 0,
       "validator_output": "Skill is valid!",
-      "installed": "~/.codex/skills/iterate-multi-agent-contract",
+      "installed": "<HOME>/.codex/skills/iterate-multi-agent-contract",
       "source": "skills/iterate-multi-agent-contract",
       "installed_validator_exit": 0
     },
@@ -28,7 +28,7 @@
       "skill": "replace-agent-with-program",
       "validator_exit": 0,
       "validator_output": "Skill is valid!",
-      "installed": "~/.codex/skills/replace-agent-with-program",
+      "installed": "<HOME>/.codex/skills/replace-agent-with-program",
       "source": "skills/replace-agent-with-program",
       "installed_validator_exit": 0
     }
