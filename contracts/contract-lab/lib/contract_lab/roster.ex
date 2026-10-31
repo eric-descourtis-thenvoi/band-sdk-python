@@ -47,7 +47,10 @@ defmodule ContractLab.Roster do
                   Enum.all?(Map.keys(v), &(&1 in (allowed ++ ["guidance"])))
               )
 
-              check(is_binary(v["name"]) and Regex.match?(~r/^[a-z][a-z0-9_]{0,63}$/, v["name"]))
+              check(
+                is_binary(v["name"]) and Regex.match?(~r/\A[a-z][a-z0-9_]{0,63}\z/, v["name"])
+              )
+
               check(id?(v["actor"]))
               guidance = Map.get(v, "guidance", "")
 

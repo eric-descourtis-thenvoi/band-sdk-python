@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/thenvoi/contract-spec",
   "revision": "ca1147db8121297eeea7e70db13f0d41d8fee44f",
-  "purpose": "Band-v1 compatibility engine: ca1147 snapshot with explicitly listed compatible backports; preserves explicit-state contracts and old sessions. Current SDK engine remains separate.",
+  "purpose": "Band-v1 compatibility engine: ca1147 snapshot with explicitly listed compatible backports; preserves explicit-state contracts and old sessions. Its compiler, engine and text counting match the platform authority's vendored engine. Current SDK engine remains separate.",
   "backports": [
     {
       "files": [
@@ -22,6 +22,60 @@
         "contract-lab/lib/contract_lab/endpoint.ex": "cee21d6d6fb34b65a18c16df0878508d1fc20d8d14db0d87b55c404a459a33ec",
         "contract-lab/rel/overlays/bin/contract-engine": "466dd957227b4b063673a9a9a8aa120f4b8b1e5a178c41a1019faf784852e199"
       }
+    },
+    {
+      "files": [
+        "contract-lab/lib/contract_lab/compiler.ex",
+        "contract-lab/lib/contract_lab/decimal.ex",
+        "contract-lab/lib/contract_lab/engine.ex"
+      ],
+      "reason": "Payload fields accept decimal, timestamp, timestamptz, duration, uuid, base64 bytes and list kinds, byte-identical to the platform authority's ca1147 backport (platform vendor/contract-source.json).",
+      "source_commit": "ebfb58dedd01b7a956c93ee8b7a4c2eecea6b865",
+      "source_path": "contract-lab/lib/contract_lab/compiler.ex"
+    },
+    {
+      "files": [
+        "header-spikes/lib/header_spikes/graphemes.ex",
+        "header-spikes/mix.exs",
+        "header-spikes/mix.lock",
+        "contract-lab/mix.lock"
+      ],
+      "reason": "Count graphemes as Unicode 18.0 extended grapheme clusters with unicode_string 2.4.1, as the platform authority does; the Unicode 16.0 tables are removed. contract-lab/mix.lock locks the same dependencies.",
+      "source_commit": "a7a435ee2b32cc7d001f7a4671dc0140ef89a8cd",
+      "source_path": "header-spikes/lib/header_spikes/graphemes.ex"
+    },
+    {
+      "files": [
+        "contract-lab/lib/contract_lab/decimal.ex"
+      ],
+      "reason": "Refuse a decimal literal with a trailing line feed as a payload error instead of raising.",
+      "source_commit": "d8934ff87b46cb99c712bb96b9532f4e6000dee8",
+      "source_path": "contract-lab/lib/contract_lab/decimal.ex"
+    },
+    {
+      "files": [
+        "contract-lab/lib/contract_lab/engine.ex",
+        "contract-lab/lib/contract_lab/roster.ex"
+      ],
+      "reason": "Refuse uuid and timestamptz payloads and roster names with a trailing line feed (the uuid and @zoned anchor hunks of engine.ex; roster.ex byte for byte).",
+      "source_commit": "fe8c33e5ee399c23505ec44d9ca0724cdd4bc9d2",
+      "source_path": "contract-lab/lib/contract_lab/engine.ex"
+    },
+    {
+      "files": [
+        "contract-lab/lib/contract_lab/engine.ex"
+      ],
+      "reason": "Size a timestamptz reply with a fixed 24-byte witness so a bound past year 9999 cannot crash session creation.",
+      "source_commit": "fd26e3b37c4a666927cf34a32e824331f5986caf",
+      "source_path": "contract-lab/lib/contract_lab/engine.ex"
+    },
+    {
+      "files": [
+        "contract-lab/lib/contract_lab/compiler.ex"
+      ],
+      "reason": "Parse documentation literals with emit_warnings: false so a compile writes no parser warnings to stderr.",
+      "source_commit": "43a4f34a7ceb8aeb02b2397c6ef96e85492f44eb",
+      "source_path": "contract-lab/lib/contract_lab/compiler.ex"
     }
   ],
   "files": {
@@ -35,10 +89,11 @@
     "contract-lab/lib/contract_lab/closing.ex": "5512170124f9a669525ceb5772d6d19ac0418f15f61bf2a80cf534c9313efe97",
     "contract-lab/lib/contract_lab/collections.ex": "347119e36f9771cd9eda05661134f8c3bc74c7dd50d4e059cc35695a62f01e92",
     "contract-lab/lib/contract_lab/command_sidecar.ex": "33fb71e21e6911266ee36c8794acbbfb6ee5063483a274e8f18d67f75c860528",
-    "contract-lab/lib/contract_lab/compiler.ex": "9adee1e37a794ee3b6f0c249c293319c051de421bfff0d3a3da5814f36739b2d",
+    "contract-lab/lib/contract_lab/compiler.ex": "1e6c66f2983f6064e7bdbc481082b16dfb63490db7908d418f0733e44ed39e90",
     "contract-lab/lib/contract_lab/contributions.ex": "94b844f0ba291679d08bd5b07dab7032f75b6ae223b648c2fa23b466f01fa083",
+    "contract-lab/lib/contract_lab/decimal.ex": "fb2beb3c09e70a4a94e280c20528cea897e32e577746ade19cfececaef0684c8",
     "contract-lab/lib/contract_lab/endpoint.ex": "cee21d6d6fb34b65a18c16df0878508d1fc20d8d14db0d87b55c404a459a33ec",
-    "contract-lab/lib/contract_lab/engine.ex": "e4adb9d417c75296b4ed5f774ab4dc2797a294a843a9594ffdb2b8d82d8d31f5",
+    "contract-lab/lib/contract_lab/engine.ex": "0f497f0e00b9a7f069be3c958406b3aacaee462d83c5e5805f430e3acf9512c9",
     "contract-lab/lib/contract_lab/file_source.ex": "cc9af0ef5538acd34e62c50f6664eeb917b3abbe9b0d5992e826cac991a2c30b",
     "contract-lab/lib/contract_lab/format.ex": "b54d79152e1d3fd62d28e20b950a96e29d0a1ced4cd433b08af2dd8aa07bc380",
     "contract-lab/lib/contract_lab/host_inputs.ex": "4dcc4d4b62f176c0dc216645b1984e6e1fc2bc844b87e918e1b9daa00270cd29",
@@ -55,7 +110,7 @@
     "contract-lab/lib/contract_lab/reserve.ex": "46cb78115f115982e1796a0659b00ac50f7500dd1a2719f50ea307b9d0e46d18",
     "contract-lab/lib/contract_lab/room_events.ex": "b8cd1eeebbf9f715dbcdc82f619a2e834eaadea3cb82b3efabd80d27ced7e331",
     "contract-lab/lib/contract_lab/room_policy.ex": "e7b8812ecd50e747d1b732c0398fd5a1ef5d17f2f3c30f7b31fd68384eba8978",
-    "contract-lab/lib/contract_lab/roster.ex": "0314a02acc2caebc1f19732e230a32e40ceb9d3011179f15d51525490207f8d3",
+    "contract-lab/lib/contract_lab/roster.ex": "cc76c395df4ae5185142dea86b70364bb576bd0fc62b8e283c84eb1f8e2db94c",
     "contract-lab/lib/contract_lab/runner.ex": "049871defe0ebd97e32181d6a874853e6829e8987b05094ab6a354d4535801d6",
     "contract-lab/lib/contract_lab/safe_pattern.ex": "0ccf2c05ac2d7c5310ff69bd31d297d71fdc98a7818b2d1fb847a736ddb37391",
     "contract-lab/lib/contract_lab/scenario.ex": "9231816fe169a741f2389872263828c7b8146976edd952708cb277dc086f2279",
@@ -66,24 +121,21 @@
     "contract-lab/lib/mix/tasks/contract.ex": "9a3784aa04e123e7c250bb0d6a4a1171c2cc9d7f96d3598b53969612c8d08c75",
     "contract-lab/lib/mix/tasks/contract.format.ex": "48adcac7c895c70fae72ba4d470722b3b04d49c49902be7bebf8a2fd42719729",
     "contract-lab/mix.exs": "4f9b465ef25a881ad57235066d4239f8689a67643121fbade7c1612438ac86cf",
-    "contract-lab/mix.lock": "235611ca8e3b1b7864b71743cb016929c3579dfee49ac76fdc1ce714d8eb8a15",
+    "contract-lab/mix.lock": "22e8bce35d84a3fc995b0115b9590dea5e9c28d421db475c644259b2a6e10b74",
     "contract-lab/rel/env.sh.eex": "12376faa0d4020656f7ddf16ac7680a8eef7e2e4eeb6660f8dd7edabbfc7c1c8",
     "contract-lab/rel/overlays/bin/contract-engine": "466dd957227b4b063673a9a9a8aa120f4b8b1e5a178c41a1019faf784852e199",
     "contract-lab/rel/vm.args.eex": "6f26df9fa2c3572e81012501ebfd42bee937ff4296245ed0b31bcedd00439994",
     "header-spikes/lib/header_spikes.ex": "7c7037d2304c234ed42d20352661762eac7fa901acfc09bbfd224c9fee6e1ea0",
     "header-spikes/lib/header_spikes/file_snapshot.ex": "f7d2edc4132ce50e7d327b23dd20cd4f71fbbcc7bd07e4e33a55e19be96a9f6e",
-    "header-spikes/lib/header_spikes/graphemes.ex": "ab4202a718a4e70e51754b8b5d0fef2a71298553c46ca4063e6eb4bb0e3db085",
+    "header-spikes/lib/header_spikes/graphemes.ex": "d22c460d684924c755e4c8d0bd152955bff8b661338ad1893b403fe7c1ac7b38",
     "header-spikes/lib/header_spikes/prefix.ex": "771a36f1021914cb98d8662535a6602f239cc7290710300789698163ef57deb0",
     "header-spikes/lib/header_spikes/schema.ex": "4bd5825693b151f2a651f4c35ad9c0f8612845ee964ad575cbbe171610695165",
     "header-spikes/lib/header_spikes/yaml.ex": "cbb29de99ba26f0bbfecad294dcd26ae0ddb6a1157d6f4ea7509a0995f0a494a",
-    "header-spikes/mix.exs": "d0b6034cf51983a8c61b021f25283a6705eb423e5aebb1bde395738fe7a6894e",
-    "header-spikes/mix.lock": "235611ca8e3b1b7864b71743cb016929c3579dfee49ac76fdc1ce714d8eb8a15",
-    "header-spikes/priv/unicode16/DerivedCoreProperties.txt": "39d35161f2954497f69e08bdb9e701493f476a3d30222de20028feda36c1dabd",
-    "header-spikes/priv/unicode16/GraphemeBreakProperty.txt": "c29360bd6f7132811d701d29069541e827eb44bfc4c8fbde8c370d6982689dc1",
-    "header-spikes/priv/unicode16/GraphemeBreakTest.txt": "ee2b9354d270ac061b29f09662cafea06341d77e704b8cc6bd72aaeeda363cb5",
-    "header-spikes/priv/unicode16/LICENSE.txt": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96",
-    "header-spikes/priv/unicode16/README.md": "0e4da0cee90e2886e7180dfd096d4cbed7da5a1d71e9fac36ef788a674fe521c",
-    "header-spikes/priv/unicode16/emoji-data.txt": "f1365a5173eee18e1f98b240cdc492e84a25f1ce7e0c9d1094eb29c41a22696a",
-    "header-spikes/priv/unicode16/manifest.json": "124cf235c339ccc16e950e3c740882601ffa9293c2cc41b48288ff8354d2423d"
-  }
+    "header-spikes/mix.exs": "697f52ec3f679b230e39b3c7d7950be05db23bd2968304966688006919fb8564",
+    "header-spikes/mix.lock": "22e8bce35d84a3fc995b0115b9590dea5e9c28d421db475c644259b2a6e10b74"
+  },
+  "host_adapter_files": [
+    "contract-lab/lib/contract_lab/endpoint.ex",
+    "contract-lab/mix.lock"
+  ]
 }
