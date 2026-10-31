@@ -38,6 +38,7 @@ class StudioAgent:
         self.db.executescript("""
           CREATE TABLE IF NOT EXISTS studio_claim(singleton INTEGER PRIMARY KEY CHECK(singleton=1), id TEXT);
           INSERT OR IGNORE INTO studio_claim VALUES(1,NULL);
+          CREATE TABLE IF NOT EXISTS studio_claim_holds(id TEXT PRIMARY KEY, reason TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS studio_jobs(job TEXT, attempt INTEGER, local_id TEXT NOT NULL,
             body TEXT, acknowledged INTEGER NOT NULL DEFAULT 0, rejected_claim TEXT,
             completion_hold TEXT, PRIMARY KEY(job,attempt));
@@ -49,6 +50,15 @@ class StudioAgent:
                     "ALTER TABLE studio_jobs ADD COLUMN " + column + " TEXT"
                 )
         self.db.commit()
+
+    def held_claims(self) -> list[JsonObject]:
+        """Inspect claims whose job identity was lost with their scope."""
+        return [
+            {"claim": claim, "status": reason, "acknowledged": False}
+            for claim, reason in self.db.execute(
+                "SELECT id,reason FROM studio_claim_holds ORDER BY rowid"
+            )
+        ]
 
     def held_completions(self) -> list[JsonObject]:
         """Inspect unresolved delivery without exposing saved room/model content."""
@@ -257,16 +267,10 @@ class StudioAgent:
                 self._hold(identifier, attempt, local_id, rejected_claim, reason)
                 continue
             self._complete(identifier, attempt, local_id, body, rejected_claim)
-        row = self.db.execute(
-            "SELECT id FROM studio_claim WHERE singleton=1"
-        ).fetchone()
-        claim = row[0] or str(uuid.uuid4())
-        if row[0] is None:
-            with self.db:
-                self.db.execute(
-                    "UPDATE studio_claim SET id=? WHERE singleton=1", (claim,)
-                )
-        response = self.transport("claim", {"id": claim})
+        claimed = self._claim()
+        if claimed is None:
+            return
+        claim, response = claimed
         if not isinstance(response, dict):
             raise ValueError("Invalid author claim response")
         job = response.get("job")
@@ -316,6 +320,38 @@ class StudioAgent:
         else:
             with self.db:
                 self.db.execute("UPDATE studio_claim SET id=NULL WHERE singleton=1")
+
+    def _claim(self) -> tuple[str, JsonObject] | None:
+        row = self.db.execute(
+            "SELECT id FROM studio_claim WHERE singleton=1"
+        ).fetchone()
+        claim = row[0] or str(uuid.uuid4())
+        if row[0] is None:
+            with self.db:
+                self.db.execute(
+                    "UPDATE studio_claim SET id=? WHERE singleton=1", (claim,)
+                )
+        try:
+            return claim, self.transport("claim", {"id": claim})
+        except HTTPError as error:
+            try:
+                unavailable = scope_unavailable(error)
+            finally:
+                error.close()
+            if not unavailable:
+                raise
+            # No job identity was acknowledged. Preserve that uncertainty while
+            # freeing only this inaccessible claim, in the same durable transaction.
+            with self.db:
+                self.db.execute(
+                    "INSERT OR IGNORE INTO studio_claim_holds VALUES(?,?)",
+                    (claim, "scope_unavailable"),
+                )
+                self.db.execute(
+                    "UPDATE studio_claim SET id=NULL WHERE singleton=1 AND id=?",
+                    (claim,),
+                )
+            return None
 
 
 def scope_unavailable(error: HTTPError) -> bool:
