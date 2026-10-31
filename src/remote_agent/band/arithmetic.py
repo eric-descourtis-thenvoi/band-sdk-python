@@ -23,6 +23,7 @@ from remote_agent.publication import publish_file
 from remote_agent.service import Service, load_config
 from remote_agent.storage import canonical, private_directory
 from remote_agent.store import Store
+from remote_agent.transport import RoomScopeUnavailable
 from remote_agent.types import JsonObject, SourcePath
 
 ALLOWED_SOURCES = {
@@ -223,6 +224,9 @@ def handle(event,state,context):
 
 
 class RuntimeDriver:
+    _closed_summary: JsonObject | None = None
+    _service_closed = False
+
     def __init__(
         self,
         value: JsonObject,
@@ -237,6 +241,7 @@ class RuntimeDriver:
         self.hold = None
         self.business_hold = None
         self.stopping = threading.Event()
+        self.lifecycle_lock = threading.RLock()
         self.last_retained_turns = -1
         self.last_seen = None
         role = assessment["role"]
@@ -397,11 +402,43 @@ class RuntimeDriver:
                                 "History retention deferred: %s", type(error).__name__
                             )
                         self.last_retained_turns = turns
+            except RoomScopeUnavailable as error:
+                self._scope_lost(error)
+                return
             except Exception as error:  # noqa: BLE001 -- The participant supervisor converts arbitrary callback failures to a hold.
                 self.hold = type(error).__name__
             self.stopping.wait(0.5)
 
+    def _scope_lost(self, error: RoomScopeUnavailable) -> None:
+        self.hold = error.reason
+        self.stopping.set()
+        self.service.request_stop()
+        with self.lifecycle_lock:
+            try:
+                # Status remains inspectable after closing the live store and engine.
+                self._closed_summary = self.summary()
+                self.service.store.commit(
+                    error.reason,
+                    {"reason": error.reason},
+                    updates={"scope_hold": error.reason},
+                )
+            finally:
+                self._close_service()
+        logger.info("Participant stopped: %s", error.reason)
+
+    def _close_service(self) -> None:
+        with self.lifecycle_lock:
+            if not self._service_closed:
+                self.service.close()
+                self._service_closed = True
+
     def summary(self) -> JsonObject:
+        with self.lifecycle_lock:
+            if self._closed_summary is not None:
+                return copy.deepcopy(self._closed_summary)
+            return self._live_summary()
+
+    def _live_summary(self) -> JsonObject:
         store = self.service.store
         with store.lock:
             value = agent_summary(store)
@@ -431,6 +468,7 @@ class RuntimeDriver:
             )
 
     def task(self, body: JsonObject) -> JsonObject:
+        self._ensure_live()
         store = self.service.store
         room = self.requester
         identifier = body["id"]
@@ -527,14 +565,22 @@ class RuntimeDriver:
     def control(self, actor: str, body: JsonObject) -> JsonObject:
         if body["action"] == "stop":
             return {"action": "stop", "status": "stopped"}
+        self._ensure_live()
         return self.service.controller.control(
             actor, {k: body[k] for k in ("id", "action", "reason")}
         )
 
     def journal(self, **page: Any) -> JsonObject:
-        return self.service.store.search(**page)
+        with self.lifecycle_lock:
+            if self._service_closed:
+                if not self.durable:
+                    raise ValueError("journal_disabled")
+                with Store(self.service.store.path) as retained:
+                    return retained.search(**page)
+            return self.service.store.search(**page)
 
     def replay(self) -> JsonObject:
+        self._ensure_live()
         with self.service.store.lock:
             store = self.service.store
             store._verify()
@@ -567,4 +613,8 @@ class RuntimeDriver:
         self.thread.join(110)
         if self.thread.is_alive():
             raise RuntimeError("runtime_shutdown_pending")
-        self.service.close()
+        self._close_service()
+
+    def _ensure_live(self) -> None:
+        if self._service_closed:
+            raise ValueError(self.hold or "runtime_closed")

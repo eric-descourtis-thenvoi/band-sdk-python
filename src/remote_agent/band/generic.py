@@ -52,6 +52,7 @@ class GenericRuntimeDriver(RuntimeDriver):
         self.durable = self.options["journal"]
         self.hold, self.business_hold, self.last_seen = None, None, None
         self.stopping, self.last_retained_turns = threading.Event(), -1
+        self.lifecycle_lock = threading.RLock()
         self.role = assessment["role"]
         source = value["context"]["source"]
         quality = checked_policy(
@@ -214,6 +215,7 @@ class GenericRuntimeDriver(RuntimeDriver):
         return None
 
     def task(self, body: JsonObject) -> JsonObject:
+        self._ensure_live()
         role = body.get("sender_role")
         if role is None:
             if len(self.task_rooms) != 1:
